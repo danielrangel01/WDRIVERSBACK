@@ -104,6 +104,34 @@ try {
   mongoUri = normalizeMongoUri(mongoUri);
 } catch (_) {}
 
+if (mongoUri && mongoUri.includes("@")) {
+  try {
+    let u = mongoUri;
+    const scheme = u.startsWith("mongodb+srv://") ? "mongodb+srv://" : "mongodb://";
+    const rest = u.slice(scheme.length);
+    const at = rest.lastIndexOf("@");
+    if (at > 0) {
+      let hostdbquery = rest.slice(at + 1);
+      let hostdb = hostdbquery;
+      const q = hostdbquery.indexOf("?");
+      if (q >= 0) hostdb = hostdbquery.slice(0, q);
+      const slash = hostdb.indexOf("/");
+      if (slash < 0) {
+        mongoUri = normalizeMongoUri(
+          scheme + rest.slice(0, at + 1) + hostdb + "/wdrivers" + (q >= 0 ? hostdbquery.slice(q) : "")
+        );
+      } else {
+        const dbName = hostdb.slice(slash + 1);
+        if (!dbName || dbName === "admin" || dbName === "local" || dbName === "config") {
+          mongoUri = normalizeMongoUri(
+            scheme + rest.slice(0, at + 1) + hostdb.slice(0, slash) + "/wdrivers" + (q >= 0 ? hostdbquery.slice(q) : "")
+          );
+        }
+      }
+    }
+  } catch (_) {}
+}
+
 if (!mongoUri) fail("MONGODB_URI", !getIsTest());
 
 const adminUser = process.env.ADMIN_USER || "admin";
