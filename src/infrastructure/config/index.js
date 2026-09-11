@@ -1,10 +1,16 @@
 import dns from "dns";
 try {
+  if (dns.setDefaultResultOrder) dns.setDefaultResultOrder("ipv4first");
   dns.setServers(["8.8.8.8", "8.8.4.4", "1.1.1.1", "1.0.0.1"]);
 } catch (_) {}
 import "dotenv/config";
 
-const getIsProd = () => process.env.NODE_ENV === "production";
+const getIsProd = () => {
+  const v = (process.env.NODE_ENV || "").toLowerCase().trim();
+  if (v === "production" || v === "prod") return true;
+  if (process.env.RAILWAY_ENVIRONMENT_ID || process.env.RAILWAY_SERVICE_ID) return true;
+  return false;
+};
 const getIsTest = () => process.env.NODE_ENV === "test" || process.env.VITEST === "true";
 
 const fail = (name, hard = true) => {
@@ -14,7 +20,6 @@ const fail = (name, hard = true) => {
     console.error(msg);
     process.exit(1);
   } else if (isTestNow) {
-    // En entorno de test, no salimos: usamos placeholders.
   } else {
     console.warn(msg);
   }
@@ -26,18 +31,94 @@ if (getIsProd() && (!jwtSecret || jwtSecret.length < 32)) {
   if (!getIsTest()) process.exit(1);
 }
 
-const mongoUri = process.env.MONGODB_URI;
+function normalizeMongoUri(raw) {
+  if (!raw) return raw;
+  let u = String(raw).trim();
+  if (!u.startsWith("mongodb://") && !u.startsWith("mongodb+srv://")) return u;
+  try {
+    const scheme = u.startsWith("mongodb+srv://") ? "mongodb+srv://" : "mongodb://";
+    const rest = u.slice(scheme.length);
+    const at = rest.lastIndexOf("@");
+    if (at <= 0) return u;
+    const userinfo = rest.slice(0, at);
+    let hostdbquery = rest.slice(at + 1);
+    let user = userinfo;
+    let pass = "";
+    const colon = userinfo.indexOf(":");
+    if (colon >= 0) {
+      user = userinfo.slice(0, colon);
+      pass = userinfo.slice(colon + 1);
+    }
+    if (pass) {
+      try {
+        const decoded = decodeURIComponent(pass);
+        const reEncoded = encodeURIComponent(decoded);
+        pass = reEncoded;
+      } catch (_) {
+        pass = encodeURIComponent(pass);
+      }
+    }
+    if (user) {
+      try {
+        const decoded = decodeURIComponent(user);
+        user = encodeURIComponent(decoded);
+      } catch (_) {
+        user = encodeURIComponent(user);
+      }
+    }
+    let query = "";
+    let hostdb = hostdbquery;
+    const q = hostdbquery.indexOf("?");
+    if (q >= 0) {
+      hostdb = hostdbquery.slice(0, q);
+      query = hostdbquery.slice(q + 1);
+    }
+    let host = hostdb;
+    let db = "";
+    const slash = hostdb.indexOf("/");
+    if (slash >= 0) {
+      host = hostdb.slice(0, slash);
+      db = hostdb.slice(slash + 1);
+    }
+    const params = new URLSearchParams(query || "");
+    if (!params.has("retryWrites")) params.set("retryWrites", "true");
+    if (!params.has("w")) params.set("w", "majority");
+    if (!params.has("authSource")) params.set("authSource", "admin");
+    if (!params.has("serverSelectionTimeoutMS")) params.set("serverSelectionTimeoutMS", "15000");
+    if (!params.has("connectTimeoutMS")) params.set("connectTimeoutMS", "15000");
+    if (!params.has("socketTimeoutMS")) params.set("socketTimeoutMS", "60000");
+    if (!params.has("heartbeatFrequencyMS")) params.set("heartbeatFrequencyMS", "10000");
+    if (!params.has("tls") && scheme === "mongodb+srv://") params.set("tls", "true");
+    if (!params.has("appName")) params.set("appName", "wdrivers-server");
+    params.delete("?");
+    query = params.toString();
+    const dbPart = db ? "/" + encodeURIComponent(db) : "";
+    return scheme + user + (pass ? ":" + pass : "") + "@" + host + dbPart + "?" + query;
+  } catch (_) {
+    return raw;
+  }
+}
+
+let mongoUri = process.env.MONGODB_URI;
+try {
+  mongoUri = normalizeMongoUri(mongoUri);
+} catch (_) {}
+
 if (!mongoUri) fail("MONGODB_URI", !getIsTest());
 
 const adminUser = process.env.ADMIN_USER || "admin";
 const adminPassword = process.env.ADMIN_PASSWORD;
 if (getIsProd() && !adminPassword) fail("ADMIN_PASSWORD");
 
+if (getIsProd()) {
+  process.env.NODE_ENV = "production";
+}
+
 export const config = {
-  get env() { return process.env.NODE_ENV || "development"; },
+  get env() { return getIsProd() ? "production" : (process.env.NODE_ENV || "development"); },
   get isProd() { return getIsProd(); },
   get isTest() { return getIsTest(); },
-  port: process.env.PORT || 4000,
+  port: Number(process.env.PORT) || 4000,
   mongoUri,
   jwtSecret: jwtSecret || "dev_secret_change_me_ONLY_FOR_LOCAL_DEV_never_use_in_prod_0123456789",
   jwtExpiresIn: process.env.JWT_EXPIRES_IN || "12h",

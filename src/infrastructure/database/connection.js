@@ -1,6 +1,7 @@
 import mongoose from "mongoose";
 
 const RECONNECT_INTERVAL_MS = 5000;
+const MAX_ATTEMPTS = 20;
 
 export async function connectDB(uri) {
   if (!uri) {
@@ -14,7 +15,8 @@ export async function connectDB(uri) {
     console.log("✓ Conectado a MongoDB");
   });
   mongoose.connection.on("error", (err) => {
-    console.error("❌ Error en conexión MongoDB:", err.message);
+    const m = (err && err.message) || String(err);
+    console.error("❌ Error en conexión MongoDB:", m);
   });
   mongoose.connection.on("disconnected", () => {
     console.warn("⚠️  Desconectado de MongoDB. Reintentando...");
@@ -30,17 +32,25 @@ export async function connectDB(uri) {
   const tryConnect = async () => {
     try {
       await mongoose.connect(uri, {
-        serverSelectionTimeoutMS: 10000,
-        connectTimeoutMS: 10000,
+        serverSelectionTimeoutMS: 15000,
+        connectTimeoutMS: 15000,
         heartbeatFrequencyMS: 10000,
-        socketTimeoutMS: 45000,
+        socketTimeoutMS: 60000,
         retryWrites: true,
         w: "majority",
+        wtimeoutMS: 10000,
+        authSource: "admin",
+        family: 4,
+        autoCreate: true,
+        autoIndex: true,
+        maxPoolSize: 25,
+        minPoolSize: 5,
       });
     } catch (err) {
       attempts++;
-      console.error(`❌ Intento ${attempts} de conexión MongoDB falló:`, err.message);
-      if (attempts < 10) {
+      const m = (err && err.message) || String(err);
+      console.error(`❌ Intento ${attempts}/${MAX_ATTEMPTS} conexión MongoDB falló: ${m}`);
+      if (attempts < MAX_ATTEMPTS) {
         setTimeout(tryConnect, RECONNECT_INTERVAL_MS);
       } else {
         console.error("❌ No se pudo conectar a MongoDB después de múltiples intentos. Saliendo.");
@@ -64,5 +74,5 @@ export function gracefulShutdown(signal, server) {
   setTimeout(() => {
     console.error("Forzando apagado por timeout");
     process.exit(1);
-  }, 10000).unref();
+  }, 15000).unref();
 }

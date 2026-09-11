@@ -9,6 +9,8 @@
     "dev": "node --watch src/main.js",
     "seed": "node src/seed.js",
     "create-admin": "node src/seed.js",
+    "migrate": "node migrate.js",
+    "migrate:apply": "node migrate.js --apply",
     "test": "cross-env NODE_ENV=test vitest run",
     "test:watch": "cross-env NODE_ENV=test vitest",
     "test:coverage": "cross-env NODE_ENV=test vitest run --coverage"
