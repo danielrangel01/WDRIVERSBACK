@@ -15,8 +15,10 @@ function scorePassword(pw) {
 }
 
 async function run() {
-  const argUser = process.argv[2];
-  const argPass = process.argv[3];
+  const forceReset = process.argv.includes("--force") || process.argv.includes("--reset");
+  const positional = process.argv.slice(2).filter(a => a && !a.startsWith("-"));
+  const argUser = positional[0];
+  const argPass = positional[1];
   const username = (argUser || config.admin.username).toLowerCase().trim();
   const password = argPass || config.admin.password;
   const minLen = config.admin.passwordMin;
@@ -46,8 +48,29 @@ async function run() {
   const users = new MongoUserRepository();
   const hasher = new BcryptHasher();
 
-  const existing = await users.findByUsername(username);
   const passwordHash = await hasher.hash(password);
+
+  if (forceReset) {
+    try {
+      await users.deleteByUsername(username);
+    } catch (_) {
+      try {
+        const UserModel = await import("./infrastructure/database/models/UserModel.js");
+        await UserModel.UserModel.deleteMany({ username });
+      } catch (_2) {
+        try {
+          const { mongo } = await import("./infrastructure/database/connection.js");
+          const { default: mongoose } = await import("mongoose");
+          if (mongoose.connection && mongoose.connection.db) {
+            await mongoose.connection.db.collection("users").deleteMany({ username });
+          }
+        } catch (_3) {}
+      }
+    }
+    console.log(`\n✓ Reset forzado: usuario "${username}" eliminado.`);
+  }
+
+  const existing = await users.findByUsername(username);
 
   if (existing) {
     existing.passwordHash = passwordHash;

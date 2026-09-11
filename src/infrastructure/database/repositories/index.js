@@ -29,6 +29,10 @@ export class MongoUserRepository extends IUserRepository {
     await UserModel.findByIdAndUpdate(user.id, { username: user.username, passwordHash: user.passwordHash });
     return user;
   }
+  async deleteByUsername(username) {
+    const r = await UserModel.deleteMany({ username });
+    return (r && r.deletedCount) || 0;
+  }
 }
 
 // ── Cars ──────────────────────────────────────────────────────────────────────

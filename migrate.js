@@ -4,8 +4,12 @@ import "dotenv/config";
 import mongoose from "mongoose";
 
 const DRY_RUN = !process.argv.includes("--apply");
-const SOURCE_DB = "test";
-const DEST_DB = "wdrivers";
+const ONLY_CARS = process.argv.includes("--only-cars");
+const envSrc = (process.env.SOURCE_DB || "test").trim();
+const envDst = (process.env.DEST_DB   || "wdrivers").trim();
+const envColl = (process.env.COLLECTIONS || "").trim();
+const SOURCE_DB = envSrc;
+const DEST_DB = envDst;
 
 const baseUri = process.env.MONGODB_URI || "";
 if (!baseUri) {
@@ -42,7 +46,7 @@ const buildUri = (dbName) => {
   return scheme + hostPart + "/" + dbName + "?" + queryPart;
 };
 
-const COLLECTIONS = [
+const DEFAULT_COLLECTIONS = [
   "cars",
   "payments",
   "refinances",
@@ -52,6 +56,10 @@ const COLLECTIONS = [
   "settings",
   "users",
 ];
+const COLLECTIONS = ONLY_CARS
+  ? ["cars"]
+  : (envColl ? envColl.split(",").map(s => s.trim()).filter(Boolean) : DEFAULT_COLLECTIONS);
+
 
 function mask(uri) {
   return uri.replace(/:([^:@]+)@/, ":***@");
