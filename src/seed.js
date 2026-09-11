@@ -1,8 +1,8 @@
-import { config } from "../infrastructure/config/index.js";
-import { connectDB } from "../infrastructure/database/connection.js";
-import { MongoUserRepository } from "../infrastructure/database/repositories/index.js";
-import { BcryptHasher } from "../infrastructure/security/BcryptHasher.js";
-import { User } from "../domain/entities/index.js";
+import { config } from "./infrastructure/config/index.js";
+import { connectDB } from "./infrastructure/database/connection.js";
+import { MongoUserRepository } from "./infrastructure/database/repositories/index.js";
+import { BcryptHasher } from "./infrastructure/security/BcryptHasher.js";
+import { User } from "./domain/entities/index.js";
 
 function scorePassword(pw) {
   let s = 0;

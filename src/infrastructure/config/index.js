@@ -1,3 +1,7 @@
+import dns from "dns";
+try {
+  dns.setServers(["8.8.8.8", "8.8.4.4", "1.1.1.1", "1.0.0.1"]);
+} catch (_) {}
 import "dotenv/config";
 
 const getIsProd = () => process.env.NODE_ENV === "production";
