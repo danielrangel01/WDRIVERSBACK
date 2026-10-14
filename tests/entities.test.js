@@ -143,6 +143,28 @@ describe("🔒 Entidades: VehicleDocument / OffDay / Settings", () => {
     expect(() => new OffDay({ carId: "malo", date: "2024-01-01" })).toThrow(/obligatorio/);
   });
 
+  it("OffDay: reason obligatorio", () => {
+    expect(() => new OffDay({ carId: "0".repeat(24), date: "2024-01-01", reason: "" })).toThrow(/motivo/);
+    expect(() => new OffDay({ carId: "0".repeat(24), date: "2024-01-01" })).toThrow(/motivo/);
+  });
+
+  it("OffDay: reason debe ser descanso u otro", () => {
+    expect(() => new OffDay({ carId: "0".repeat(24), date: "2024-01-01", reason: "vacaciones" })).toThrow(/inválido/i);
+  });
+
+  it("OffDay: reason 'otro' requiere detail", () => {
+    expect(() => new OffDay({ carId: "0".repeat(24), date: "2024-01-01", reason: "otro", detail: "" })).toThrow(/detalle/);
+    const ok = new OffDay({ carId: "0".repeat(24), date: "2024-01-01", reason: "otro", detail: "Mantenimiento" });
+    expect(ok.reason).toBe("otro");
+    expect(ok.detail).toBe("Mantenimiento");
+  });
+
+  it("OffDay: reason 'descanso' no requiere detail", () => {
+    const ok = new OffDay({ carId: "0".repeat(24), date: "2024-01-01", reason: "descanso" });
+    expect(ok.reason).toBe("descanso");
+    expect(ok.isRestDay).toBe(true);
+  });
+
   it("Settings ajusta horas fuera de rango a fallback", () => {
     const s = new Settings({ morningHour: -5, eveningHour: 99 });
     expect(s.morningHour).toBe(8);

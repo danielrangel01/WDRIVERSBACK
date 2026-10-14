@@ -170,9 +170,10 @@ describe("🚀 Use Cases: OffDays (toggle / bulk / clear)", () => {
     const r = await uc.execute({
       date: "2024-01-01",
       carIds: [OID, "malo", "tambienmal"],
+      reason: "descanso",
     });
     expect(r.count).toBe(1);
-    expect(offRepo.upsertMany).toHaveBeenCalledWith("2024-01-01", [OID]);
+    expect(offRepo.upsertMany).toHaveBeenCalledWith("2024-01-01", [OID], { reason: "descanso", detail: "" });
   });
 
   it("ClearOffDay: fecha inválida → error", async () => {

@@ -11,6 +11,7 @@ import { JwtTokenService } from "../../infrastructure/security/JwtTokenService.j
 import { LoginUseCase, ChangeCredentialsUseCase } from "../../application/use-cases/auth/index.js";
 import {
   ListCarsUseCase, AddCarUseCase, UpdateCarUseCase, DeactivateCarUseCase, ReactivateCarUseCase,
+  GetCarDebtDetailUseCase,
 } from "../../application/use-cases/cars/index.js";
 import { AddPaymentUseCase, DeletePaymentUseCase } from "../../application/use-cases/payments/index.js";
 import { AddExpenseUseCase, DeleteExpenseUseCase } from "../../application/use-cases/expenses/index.js";
@@ -41,6 +42,7 @@ export function buildContainer() {
     updateCar: new UpdateCarUseCase({ carRepository }),
     deactivateCar: new DeactivateCarUseCase({ carRepository }),
     reactivateCar: new ReactivateCarUseCase({ carRepository }),
+    getCarDebtDetail: new GetCarDebtDetailUseCase({ carRepository, paymentRepository, offDayRepository }),
     addPayment: new AddPaymentUseCase({ paymentRepository, carRepository }),
     deletePayment: new DeletePaymentUseCase({ paymentRepository }),
     addExpense: new AddExpenseUseCase({ expenseRepository }),

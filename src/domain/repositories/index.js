@@ -52,7 +52,7 @@ export class IOffDayRepository {
   async delete(_id) { throw new Error("No implementado"); }
   async deleteByDate(_date) { throw new Error("No implementado"); }
   async deleteAll() { throw new Error("No implementado"); }
-  async upsertMany(_date, _carIds) { throw new Error("No implementado"); }
+  async upsertMany(_date, _carIds, _payload = {}) { throw new Error("No implementado"); }
 }
 
 export class ISettingsRepository {

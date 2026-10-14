@@ -24,6 +24,7 @@ export function buildRoutes(controllers, authMiddleware) {
   api.put("/cars/:id", controllers.updateCar);
   api.delete("/cars/:id", controllers.deactivateCar);       // soft delete
   api.post("/cars/:id/reactivate", controllers.reactivateCar);
+  api.get("/cars/:id/debt-detail", controllers.getCarDebtDetail);
 
   // payments
   api.post("/payments", controllers.addPayment);

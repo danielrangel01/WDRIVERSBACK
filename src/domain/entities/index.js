@@ -98,18 +98,37 @@ export class VehicleDocument {
   }
 }
 
+export const OFF_DAY_REASONS = ["descanso", "otro"];
+export const MAX_OFF_DAY_DETAIL = 200;
+
 export class OffDay {
-  constructor({ id, carId, date }) {
+  constructor({ id, carId, date, reason = "", detail = "" }) {
     this.id = id;
     this.carId = carId;
     this.date = date;
+    this.reason = (reason || "").trim().toLowerCase();
+    this.detail = typeof detail === "string" ? detail.trim().slice(0, MAX_OFF_DAY_DETAIL) : "";
+    this.validate();
+  }
+  validate() {
     if (!this.carId || typeof this.carId !== "string" || this.carId.length < 10 || this.carId.length > 30) {
       throw new ValidationError("El carro es obligatorio");
     }
     if (!DATE_RE.test(this.date || "")) throw new ValidationError("Fecha inválida (YYYY-MM-DD)");
+    if (!this.reason) throw new ValidationError("El motivo del día no trabajado es obligatorio");
+    if (!OFF_DAY_REASONS.includes(this.reason)) {
+      throw new ValidationError("Motivo inválido. Usa 'descanso' o 'otro'");
+    }
+    if (this.reason === "otro" && !this.detail) {
+      throw new ValidationError("Debes especificar el detalle cuando el motivo es 'otro'");
+    }
+    return this;
+  }
+  get isRestDay() {
+    return this.reason === "descanso";
   }
   toJSON() {
-    return { id: this.id, carId: this.carId, date: this.date };
+    return { id: this.id, carId: this.carId, date: this.date, reason: this.reason, detail: this.detail };
   }
 }
 

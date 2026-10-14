@@ -147,7 +147,13 @@ export class MongoDocumentRepository extends IDocumentRepository {
 }
 
 // ── OffDays ───────────────────────────────────────────────────────────────────
-const toOffDay = (d) => new OffDay({ id: id(d), carId: d.carId.toString(), date: d.date });
+const toOffDay = (d) => new OffDay({
+  id: id(d),
+  carId: d.carId.toString(),
+  date: d.date,
+  reason: d.reason || "descanso",
+  detail: d.detail || "",
+});
 
 export class MongoOffDayRepository extends IOffDayRepository {
   async findAll() {
@@ -159,7 +165,7 @@ export class MongoOffDayRepository extends IOffDayRepository {
     return d ? toOffDay(d) : null;
   }
   async create(offDay) {
-    const d = await OffDayModel.create({ carId: offDay.carId, date: offDay.date });
+    const d = await OffDayModel.create({ carId: offDay.carId, date: offDay.date, reason: offDay.reason, detail: offDay.detail });
     return toOffDay(d);
   }
   async delete(offDayId) {
@@ -171,10 +177,14 @@ export class MongoOffDayRepository extends IOffDayRepository {
   async deleteAll() {
     await OffDayModel.deleteMany({});
   }
-  async upsertMany(date, carIds) {
+  async upsertMany(date, carIds, payload = {}) {
     await Promise.all(
       carIds.map((carId) =>
-        OffDayModel.findOneAndUpdate({ carId, date }, { carId, date }, { upsert: true })
+        OffDayModel.findOneAndUpdate(
+          { carId, date },
+          { carId, date, reason: payload.reason || "descanso", detail: payload.detail || "" },
+          { upsert: true, new: true }
+        )
       )
     );
   }

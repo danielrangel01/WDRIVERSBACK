@@ -13,6 +13,10 @@
     "reset-admin": "node src/seed.js --reset",
     "migrate": "node migrate.js",
     "migrate:apply": "node migrate.js --apply",
+    "backup": "node backup.js",
+    "backup:cars": "node backup.js --only-cars",
+    "backup:compact": "node backup.js --compact",
+    "restore": "node restore.js",
     "test": "cross-env NODE_ENV=test vitest run",
     "test:watch": "cross-env NODE_ENV=test vitest",
     "test:coverage": "cross-env NODE_ENV=test vitest run --coverage"

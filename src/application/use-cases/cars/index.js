@@ -1,5 +1,6 @@
 import { Car } from "../../../domain/entities/Car.js";
 import { NotFoundError, ConflictError, ValidationError } from "../../../shared/errors.js";
+import { GetCarDebtDetailUseCase } from "./GetCarDebtDetailUseCase.js";
 
 const OID_LEN = 24;
 const validOid = (id) => typeof id === "string" && /^[0-9a-fA-F]{24}$/.test(id);
@@ -94,3 +95,5 @@ export class ReactivateCarUseCase {
     return { ok: true, id: car.id, plate: car.plate };
   }
 }
+
+export { GetCarDebtDetailUseCase };

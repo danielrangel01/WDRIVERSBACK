@@ -118,6 +118,7 @@ function buildApiRoutes(controllers, authMiddleware) {
   api.put("/cars/:id", controllers.updateCar);
   api.delete("/cars/:id", controllers.deactivateCar);
   api.post("/cars/:id/reactivate", controllers.reactivateCar);
+  api.get("/cars/:id/debt-detail", controllers.getCarDebtDetail);
   api.post("/payments", controllers.addPayment);
   api.delete("/payments/:id", controllers.deletePayment);
   api.post("/expenses", controllers.addExpense);

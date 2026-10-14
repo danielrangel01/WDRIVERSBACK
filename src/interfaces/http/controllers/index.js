@@ -45,6 +45,13 @@ export function buildControllers(useCases) {
       const result = await useCases.reactivateCar.execute({ id: req.params.id });
       res.json(result);
     }),
+    getCarDebtDetail: asyncHandler(async (req, res) => {
+      const detail = await useCases.getCarDebtDetail.execute({
+        carId: req.params.id,
+        today: req.query.today,
+      });
+      res.json(detail);
+    }),
 
     // ── Payments ──────────────────────────────────────────────────────────
     addPayment: asyncHandler(async (req, res) => {
