@@ -83,6 +83,7 @@ export function createApp() {
   app.get("/robots.txt", (req, res) => res.type("text/plain").send("User-agent: *\nDisallow: /\n"));
 
   const { useCases, tokenService } = buildContainer();
+  app.locals.useCases = useCases;
   const controllers = buildControllers(useCases);
   const authMiddleware = makeAuthMiddleware(tokenService);
 
@@ -132,5 +133,9 @@ function buildApiRoutes(controllers, authMiddleware) {
   api.post("/refinances/:id/pay", controllers.payRefinance);
   api.delete("/refinances/:id", controllers.cancelRefinance);
   api.put("/settings", controllers.updateSettings);
+  api.get("/nequi/pending", controllers.listPendingNequi);
+  api.post("/nequi/sync", controllers.syncNequi);
+  api.post("/nequi/pending/:id/approve", controllers.approvePendingNequi);
+  api.delete("/nequi/pending/:id", controllers.dismissPendingNequi);
   return api;
 }

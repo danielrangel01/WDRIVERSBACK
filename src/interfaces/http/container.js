@@ -3,10 +3,12 @@ import { config } from "../../infrastructure/config/index.js";
 import {
   MongoUserRepository, MongoCarRepository, MongoPaymentRepository,
   MongoExpenseRepository, MongoDocumentRepository, MongoOffDayRepository, MongoSettingsRepository, MongoRefinanceRepository,
+  MongoPendingPaymentRepository,
 } from "../../infrastructure/database/repositories/index.js";
 
 import { BcryptHasher } from "../../infrastructure/security/BcryptHasher.js";
 import { JwtTokenService } from "../../infrastructure/security/JwtTokenService.js";
+import { NequiMailReader } from "../../infrastructure/mail/NequiMailReader.js";
 
 import { LoginUseCase, ChangeCredentialsUseCase } from "../../application/use-cases/auth/index.js";
 import {
@@ -20,6 +22,9 @@ import { ToggleOffDayUseCase, BulkOffDayUseCase, ClearOffDayUseCase } from "../.
 import { GetSettingsUseCase, UpdateSettingsUseCase } from "../../application/use-cases/settings/index.js";
 import { GetAllDataUseCase, ResetDataUseCase } from "../../application/use-cases/data/index.js";
 import { CreateRefinanceUseCase, PayRefinanceUseCase, CancelRefinanceUseCase } from "../../application/use-cases/refinances/index.js";
+import {
+  SyncNequiUseCase, ListPendingPaymentsUseCase, ApprovePendingPaymentUseCase, DismissPendingPaymentUseCase,
+} from "../../application/use-cases/nequi/index.js";
 
 export function buildContainer() {
   const userRepository = new MongoUserRepository();
@@ -30,9 +35,13 @@ export function buildContainer() {
   const offDayRepository = new MongoOffDayRepository();
   const settingsRepository = new MongoSettingsRepository();
   const refinanceRepository = new MongoRefinanceRepository();
+  const pendingPaymentRepository = new MongoPendingPaymentRepository();
 
   const passwordHasher = new BcryptHasher();
   const tokenService = new JwtTokenService(config.jwtSecret, config.jwtExpiresIn);
+  const mailReader = new NequiMailReader(config.nequi);
+
+  const addPayment = new AddPaymentUseCase({ paymentRepository, carRepository });
 
   const useCases = {
     login: new LoginUseCase({ userRepository, passwordHasher, tokenService }),
@@ -43,7 +52,7 @@ export function buildContainer() {
     deactivateCar: new DeactivateCarUseCase({ carRepository }),
     reactivateCar: new ReactivateCarUseCase({ carRepository }),
     getCarDebtDetail: new GetCarDebtDetailUseCase({ carRepository, paymentRepository, offDayRepository }),
-    addPayment: new AddPaymentUseCase({ paymentRepository, carRepository }),
+    addPayment,
     deletePayment: new DeletePaymentUseCase({ paymentRepository }),
     addExpense: new AddExpenseUseCase({ expenseRepository }),
     deleteExpense: new DeleteExpenseUseCase({ expenseRepository }),
@@ -60,9 +69,14 @@ export function buildContainer() {
     getAllData: new GetAllDataUseCase({
       carRepository, paymentRepository, expenseRepository,
       documentRepository, offDayRepository, settingsRepository, refinanceRepository,
+      pendingPaymentRepository,
     }),
-    resetData: new ResetDataUseCase({ paymentRepository, expenseRepository, documentRepository, offDayRepository, refinanceRepository }),
+    resetData: new ResetDataUseCase({ paymentRepository, expenseRepository, documentRepository, offDayRepository, refinanceRepository, pendingPaymentRepository }),
+    syncNequi: new SyncNequiUseCase({ pendingPaymentRepository, mailReader }),
+    listPendingPayments: new ListPendingPaymentsUseCase({ pendingPaymentRepository }),
+    approvePendingPayment: new ApprovePendingPaymentUseCase({ pendingPaymentRepository, addPaymentUseCase: addPayment }),
+    dismissPendingPayment: new DismissPendingPaymentUseCase({ pendingPaymentRepository }),
   };
 
-  return { useCases, tokenService, repositories: { userRepository, carRepository }, passwordHasher };
+  return { useCases, tokenService, mailReader, repositories: { userRepository, carRepository, pendingPaymentRepository }, passwordHasher };
 }

@@ -1,12 +1,14 @@
 import {
   IUserRepository, ICarRepository, IPaymentRepository,
   IExpenseRepository, IDocumentRepository, IOffDayRepository, ISettingsRepository, IRefinanceRepository,
+  IPendingPaymentRepository,
 } from "../../../domain/repositories/index.js";
-import { User, Payment, Expense, VehicleDocument, OffDay, Settings } from "../../../domain/entities/index.js";
+import { User, Payment, Expense, VehicleDocument, OffDay, Settings, PendingPayment } from "../../../domain/entities/index.js";
 import { Refinance } from "../../../domain/entities/Refinance.js";
 import { Car } from "../../../domain/entities/Car.js";
 import {
   UserModel, CarModel, PaymentModel, ExpenseModel, DocumentModel, OffDayModel, SettingsModel, RefinanceModel,
+  PendingPaymentModel,
 } from "../models/index.js";
 
 const id = (doc) => doc._id.toString();
@@ -243,5 +245,51 @@ export class MongoRefinanceRepository extends IRefinanceRepository {
   }
   async deleteAll() {
     await RefinanceModel.deleteMany({});
+  }
+}
+
+// ── PendingPayments (pagos entrantes detectados por correo) ────────────────────
+const toPendingPayment = (d) => new PendingPayment({
+  id: id(d), amount: d.amount, detectedDate: d.detectedDate, source: d.source,
+  from: d.from, subject: d.subject, snippet: d.snippet, messageId: d.messageId,
+  status: d.status, approvedPaymentId: d.approvedPaymentId, createdAt: d.createdAt,
+});
+
+export class MongoPendingPaymentRepository extends IPendingPaymentRepository {
+  async findAll({ status } = {}) {
+    const filter = status ? { status } : {};
+    const docs = await PendingPaymentModel.find(filter).sort({ detectedDate: -1, createdAt: -1 });
+    return docs.map(toPendingPayment);
+  }
+  async findById(pendingId) {
+    const d = await PendingPaymentModel.findById(pendingId).catch(() => null);
+    return d ? toPendingPayment(d) : null;
+  }
+  async insertMany(pending) {
+    if (!Array.isArray(pending) || pending.length === 0) return 0;
+    const docs = pending.map((p) => ({
+      amount: p.amount, detectedDate: p.detectedDate, source: p.source,
+      from: p.from, subject: p.subject, snippet: p.snippet, messageId: p.messageId, status: p.status,
+    }));
+    try {
+      const inserted = await PendingPaymentModel.insertMany(docs, { ordered: false });
+      return inserted.length;
+    } catch (err) {
+      // Duplicados por messageId (correo ya procesado) se ignoran sin romper la sincronización.
+      if (err && Array.isArray(err.insertedDocs)) return err.insertedDocs.length;
+      if (err && (err.code === 11000 || err.name === "MongoBulkWriteError")) return 0;
+      throw err;
+    }
+  }
+  async update(pending) {
+    const d = await PendingPaymentModel.findByIdAndUpdate(
+      pending.id,
+      { status: pending.status, approvedPaymentId: pending.approvedPaymentId || null },
+      { new: true }
+    );
+    return d ? toPendingPayment(d) : null;
+  }
+  async deleteAll() {
+    await PendingPaymentModel.deleteMany({});
   }
 }

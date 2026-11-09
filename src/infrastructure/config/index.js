@@ -176,4 +176,19 @@ export const config = {
     categoryMaxLength: 60,
     bulkOffDayMaxCars: 200,
   },
+  nequi: {
+    // Se activa solo si hay credenciales IMAP configuradas.
+    get enabled() {
+      return !!(process.env.NEQUI_IMAP_HOST && process.env.NEQUI_IMAP_USER && process.env.NEQUI_IMAP_PASS);
+    },
+    imapHost: process.env.NEQUI_IMAP_HOST || "",
+    imapPort: Number(process.env.NEQUI_IMAP_PORT || 993),
+    imapSecure: (process.env.NEQUI_IMAP_SECURE || "true") !== "false",
+    imapUser: process.env.NEQUI_IMAP_USER || "",
+    imapPass: process.env.NEQUI_IMAP_PASS || "",
+    mailbox: process.env.NEQUI_IMAP_MAILBOX || "INBOX",
+    fromFilter: process.env.NEQUI_MAIL_FROM || "",
+    sinceDays: Number(process.env.NEQUI_MAIL_SINCE_DAYS || 14),
+    syncEveryMs: Number(process.env.NEQUI_SYNC_EVERY_MS || 0),
+  },
 };

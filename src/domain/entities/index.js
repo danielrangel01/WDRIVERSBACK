@@ -132,6 +132,43 @@ export class OffDay {
   }
 }
 
+export const PENDING_PAYMENT_STATUS = ["pending", "approved", "dismissed"];
+
+// Pago entrante detectado desde correo (Nequi) y pendiente de conciliar por el admin.
+export class PendingPayment {
+  constructor({ id, amount, detectedDate, source = "nequi", from = "", subject = "", snippet = "", messageId, status = "pending", approvedPaymentId = null, createdAt = null }) {
+    this.id = id;
+    this.amount = Number(amount);
+    this.detectedDate = detectedDate;
+    this.source = req(source, 40) || "nequi";
+    this.from = req(from, 160);
+    this.subject = req(subject, 200);
+    this.snippet = typeof snippet === "string" ? snippet.slice(0, 400) : "";
+    this.messageId = req(messageId, 300);
+    this.status = status;
+    this.approvedPaymentId = approvedPaymentId ? String(approvedPaymentId) : null;
+    this.createdAt = createdAt;
+    this.validate();
+  }
+  validate() {
+    if (isNaN(this.amount) || !isFinite(this.amount) || this.amount <= 0) {
+      throw new ValidationError("El monto debe ser mayor a 0");
+    }
+    if (this.amount > 1e11) throw new ValidationError("Monto excesivo");
+    if (!DATE_RE.test(this.detectedDate || "")) throw new ValidationError("Fecha detectada inválida (YYYY-MM-DD)");
+    if (!this.messageId) throw new ValidationError("El pago pendiente requiere messageId");
+    if (!PENDING_PAYMENT_STATUS.includes(this.status)) throw new ValidationError("Estado de pago pendiente inválido");
+    return this;
+  }
+  toJSON() {
+    return {
+      id: this.id, amount: this.amount, detectedDate: this.detectedDate, source: this.source,
+      from: this.from, subject: this.subject, snippet: this.snippet, messageId: this.messageId,
+      status: this.status, approvedPaymentId: this.approvedPaymentId, createdAt: this.createdAt,
+    };
+  }
+}
+
 export class Settings {
   constructor({ adminPhone = "", morningHour = 8, eveningHour = 20 } = {}) {
     this.adminPhone = req(adminPhone, MAX_PHONE);

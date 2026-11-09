@@ -72,6 +72,22 @@ const settingsSchema = new Schema(
   { timestamps: true }
 );
 
+// Pagos entrantes detectados desde correo (Nequi), pendientes de conciliar.
+const pendingPaymentSchema = new Schema(
+  {
+    amount: { type: Number, required: true },
+    detectedDate: { type: String, required: true },          // YYYY-MM-DD sugerida
+    source: { type: String, default: "nequi" },
+    from: { type: String, default: "" },                     // remitente del correo
+    subject: { type: String, default: "" },
+    snippet: { type: String, default: "" },                  // texto crudo (para ajustar el parser)
+    messageId: { type: String, required: true, unique: true }, // idempotencia por correo
+    status: { type: String, enum: ["pending", "approved", "dismissed"], default: "pending" },
+    approvedPaymentId: { type: Schema.Types.ObjectId, ref: "Payment", default: null },
+  },
+  { timestamps: true }
+);
+
 const refinanceSchema = new Schema(
   {
     carId: { type: Schema.Types.ObjectId, ref: "Car", required: true },
@@ -93,3 +109,4 @@ export const DocumentModel = mongoose.model("Document", documentSchema);
 export const OffDayModel = mongoose.model("OffDay", offDaySchema);
 export const SettingsModel = mongoose.model("Settings", settingsSchema);
 export const RefinanceModel = mongoose.model("Refinance", refinanceSchema);
+export const PendingPaymentModel = mongoose.model("PendingPayment", pendingPaymentSchema);

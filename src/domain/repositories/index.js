@@ -68,3 +68,11 @@ export class IRefinanceRepository {
   async delete(_id) { throw new Error("No implementado"); }
   async deleteAll() { throw new Error("No implementado"); }
 }
+
+export class IPendingPaymentRepository {
+  async findAll({ status } = {}) { throw new Error("No implementado"); }
+  async findById(_id) { throw new Error("No implementado"); }
+  async insertMany(_pending) { throw new Error("No implementado"); }
+  async update(_pending) { throw new Error("No implementado"); }
+  async deleteAll() { throw new Error("No implementado"); }
+}

@@ -1,6 +1,7 @@
 import { config } from "./infrastructure/config/index.js";
 import { connectDB, gracefulShutdown } from "./infrastructure/database/connection.js";
 import { createApp } from "./interfaces/http/app.js";
+import { startNequiSync } from "./infrastructure/mail/nequiScheduler.js";
 
 process.on("uncaughtException", (err) => {
   console.error("💀 Uncaught Exception:", err.name, err.message);
@@ -31,6 +32,12 @@ async function main() {
     if (err.code === "ECONNRESET" || !socket.writable) return;
     socket.end("HTTP/1.1 400 Bad Request\r\n\r\n");
   });
+
+  // Sincronización automática de correos de Nequi (solo si hay credenciales IMAP).
+  if (config.nequi.enabled && config.nequi.syncEveryMs > 0) {
+    startNequiSync({ useCase: app.locals.useCases.syncNequi, everyMs: config.nequi.syncEveryMs });
+    console.log(`✓ Sincronización Nequi activa cada ${Math.round(config.nequi.syncEveryMs / 60000)} min`);
+  }
 
   process.on("SIGTERM", () => gracefulShutdown("SIGTERM", server));
   process.on("SIGINT", () => gracefulShutdown("SIGINT", server));

@@ -117,5 +117,21 @@ export function buildControllers(useCases) {
     resetData: asyncHandler(async (req, res) => {
       res.json(await useCases.resetData.execute());
     }),
+
+    // ── Nequi (pagos entrantes detectados por correo) ──────────────────────
+    syncNequi: asyncHandler(async (req, res) => {
+      res.json(await useCases.syncNequi.execute());
+    }),
+    listPendingNequi: asyncHandler(async (req, res) => {
+      const status = req.query.status === "all" ? "all" : "pending";
+      res.json(await useCases.listPendingPayments.execute({ status }));
+    }),
+    approvePendingNequi: asyncHandler(async (req, res) => {
+      const result = await useCases.approvePendingPayment.execute({ id: req.params.id, ...req.body });
+      res.json(result);
+    }),
+    dismissPendingNequi: asyncHandler(async (req, res) => {
+      res.json(await useCases.dismissPendingPayment.execute({ id: req.params.id }));
+    }),
   };
 }

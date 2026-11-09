@@ -51,6 +51,12 @@ export function buildRoutes(controllers, authMiddleware) {
   // settings
   api.put("/settings", controllers.updateSettings);
 
+  // nequi (pagos entrantes detectados por correo)
+  api.get("/nequi/pending", controllers.listPendingNequi);
+  api.post("/nequi/sync", controllers.syncNequi);
+  api.post("/nequi/pending/:id/approve", controllers.approvePendingNequi);
+  api.delete("/nequi/pending/:id", controllers.dismissPendingNequi);
+
   router.use("/", api);
 
   return router;
