@@ -56,6 +56,18 @@ describe("parseNequiEmail", () => {
     expect(r.isPayment).toBe(false);
   });
 
+  it("detecta el correo real de Nequi Bre-B (monto sin '$')", () => {
+    const r = parseNequiEmail({
+      subject: "¡Recibiste plata por Bre-B!",
+      text: "¡Hola, JANETH MARIA VERDOOREN DEGOMEZ! Recibiste 10.000 de DANIEL FARID RANGEL LLANOS el 9 de noviembre de 2026 a las 6:56 p.m, desde el banco Falabella. Revisa el detalle en los movimientos de tu app o descarga el comprobante si lo necesitas. Si no fuiste tú, escríbenos al chat: www.nequi.com.co o llama a la línea: (+57) 300 600 0100",
+      date,
+      from: "Nequi <no-responder@nequi.com.co>",
+    });
+    expect(r).not.toBeNull();
+    expect(r.isPayment).toBe(true);
+    expect(r.amount).toBe(10000);
+  });
+
   it("devuelve null si no hay monto", () => {
     expect(parseNequiEmail({ subject: "Hola", text: "Sin montos" })).toBeNull();
   });

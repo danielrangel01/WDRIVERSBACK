@@ -148,8 +148,17 @@ describe("🔒 Entidades: VehicleDocument / OffDay / Settings", () => {
     expect(() => new OffDay({ carId: "0".repeat(24), date: "2024-01-01" })).toThrow(/motivo/);
   });
 
-  it("OffDay: reason debe ser descanso u otro", () => {
+  it("OffDay: reason debe ser uno de los motivos permitidos", () => {
     expect(() => new OffDay({ carId: "0".repeat(24), date: "2024-01-01", reason: "vacaciones" })).toThrow(/inválido/i);
+  });
+
+  it("OffDay: acepta 'no_trabajo' y 'taller' sin detail", () => {
+    const noWork = new OffDay({ carId: "0".repeat(24), date: "2024-01-01", reason: "no_trabajo" });
+    expect(noWork.reason).toBe("no_trabajo");
+    expect(noWork.isRestDay).toBe(false);
+    const workshop = new OffDay({ carId: "0".repeat(24), date: "2024-01-01", reason: "taller" });
+    expect(workshop.reason).toBe("taller");
+    expect(workshop.isRestDay).toBe(false);
   });
 
   it("OffDay: reason 'otro' requiere detail", () => {

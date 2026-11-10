@@ -55,7 +55,7 @@ const offDaySchema = new Schema(
   {
     carId: { type: Schema.Types.ObjectId, ref: "Car", required: true },
     date: { type: String, required: true },
-    reason: { type: String, required: true, enum: ["descanso", "otro"], default: "descanso" },
+    reason: { type: String, required: true, enum: ["descanso", "no_trabajo", "taller", "otro"], default: "descanso" },
     detail: { type: String, default: "" },
   },
   { timestamps: true }

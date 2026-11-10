@@ -132,6 +132,45 @@ if (mongoUri && mongoUri.includes("@")) {
   } catch (_) {}
 }
 
+// ── Override de base de datos para ENTORNO DE PRUEBAS (jamás en producción) ──
+// Permite levantar el backend contra una DB de pruebas (p. ej. wdrivers_test)
+// sin tocar la base de datos real. Uso:  TEST_DB_NAME=wdrivers_test npm run dev:test
+function replaceDbName(uri, dbName) {
+  if (!uri) return uri;
+  const u = String(uri).trim();
+  let scheme = "";
+  if (u.startsWith("mongodb+srv://")) scheme = "mongodb+srv://";
+  else if (u.startsWith("mongodb://")) scheme = "mongodb://";
+  else return uri;
+  let rest = u.slice(scheme.length);
+  let query = "";
+  const q = rest.indexOf("?");
+  if (q >= 0) {
+    query = rest.slice(q);
+    rest = rest.slice(0, q);
+  }
+  const at = rest.lastIndexOf("@");
+  const creds = at > 0 ? rest.slice(0, at + 1) : "";
+  const hostdb = at > 0 ? rest.slice(at + 1) : rest;
+  const slash = hostdb.indexOf("/");
+  const host = slash >= 0 ? hostdb.slice(0, slash) : hostdb;
+  return scheme + creds + host + "/" + dbName + query;
+}
+
+const PROTECTED_DB_NAMES = new Set(["admin", "local", "config"]);
+let testDbName = "";
+if (!getIsProd()) {
+  testDbName = (process.env.TEST_DB_NAME || "").trim();
+  if (testDbName) {
+    if (PROTECTED_DB_NAMES.has(testDbName)) {
+      console.error(`\n❌ TEST_DB_NAME no puede ser una base de datos protegida: "${testDbName}"\n`);
+      process.exit(1);
+    }
+    mongoUri = replaceDbName(mongoUri, testDbName);
+    console.log(`🧪 MODO PRUEBAS: usando base de datos "${testDbName}" (la base real NO se toca).`);
+  }
+}
+
 if (!mongoUri) fail("MONGODB_URI", !getIsTest());
 
 const adminUser = process.env.ADMIN_USER || "admin";

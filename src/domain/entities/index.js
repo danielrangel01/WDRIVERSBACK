@@ -98,7 +98,7 @@ export class VehicleDocument {
   }
 }
 
-export const OFF_DAY_REASONS = ["descanso", "otro"];
+export const OFF_DAY_REASONS = ["descanso", "no_trabajo", "taller", "otro"];
 export const MAX_OFF_DAY_DETAIL = 200;
 
 export class OffDay {
@@ -117,7 +117,7 @@ export class OffDay {
     if (!DATE_RE.test(this.date || "")) throw new ValidationError("Fecha inválida (YYYY-MM-DD)");
     if (!this.reason) throw new ValidationError("El motivo del día no trabajado es obligatorio");
     if (!OFF_DAY_REASONS.includes(this.reason)) {
-      throw new ValidationError("Motivo inválido. Usa 'descanso' o 'otro'");
+      throw new ValidationError("Motivo inválido. Usa 'descanso', 'no_trabajo', 'taller' u 'otro'");
     }
     if (this.reason === "otro" && !this.detail) {
       throw new ValidationError("Debes especificar el detalle cuando el motivo es 'otro'");

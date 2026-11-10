@@ -2,9 +2,12 @@
 // Módulo puro (sin red ni base de datos) para poder probarlo y ajustarlo con
 // el primer correo real. Devuelve el monto y la fecha sugerida, o null.
 
-const RECEIVED_RX = /(recibiste|recibido|recibimos|has recibido|te\s+(?:envi|mand|transfir|consign)\w*|te\s+lleg\w*|abono|ingreso|transferencia recibida|pago recibido|entrada de dinero)/i;
+const RECEIVED_RX = /(recibiste|recibido|recibimos|recibió|recibes|has recibido|te\s+(?:envi|mand|transfir|consign|lleg|deposit)\w*|abono|ingreso|transferencia recibida|pago recibido|entrada de dinero)/i;
 const SENT_RX = /(enviaste|pagaste|realizaste|tu env[ií]o|saldo enviado|pago realizado|cobro generado)/i;
 const MONEY_RX = /\$\s*([0-9][0-9.,]{0,20})/g;
+// Monto anclado a una palabra clave de "recibido": funciona con o sin "$".
+// Ej: "Recibiste 10.000 de Juan" (Nequi Bre-B) y "Recibiste un pago por $80.000 de Juan".
+const RECEIVED_AMOUNT_RX = /(?:recibiste|recibido|recibimos|recibió|recibes|has recibido|te\s+(?:envi|mand|transfir|consign|lleg|deposit)\w*|abono|ingreso|transferencia recibida|pago recibido|entrada de dinero)[^0-9]{0,25}?([0-9][0-9.,]{0,20})/i;
 
 // Convierte un monto con formato colombiano/US a número.
 // "80.000" -> 80000 | "1.234.567,89" -> 1234567.89 | "80,000.00" -> 80000 | "12,50" -> 12.5
@@ -70,10 +73,17 @@ export function toBogotaDateStr(date) {
   }
 }
 
-// Extrae montos del texto. Prioriza el monto que aparece tras una palabra clave
-// de "recibido"; si no, usa el primero encontrado.
+// Extrae montos del texto. Prioriza el monto anclado a una palabra clave de
+// "recibido" (sirve con o sin "$"); si no, usa el primer monto con "$".
 export function extractAmount(text) {
   const hay = String(text || "");
+
+  const anchored = RECEIVED_AMOUNT_RX.exec(hay);
+  if (anchored) {
+    const v = parseCoAmount(anchored[1]);
+    if (isFinite(v) && v > 0) return v;
+  }
+
   const amounts = [];
   let m;
   MONEY_RX.lastIndex = 0;
@@ -81,14 +91,7 @@ export function extractAmount(text) {
     const value = parseCoAmount(m[1]);
     if (isFinite(value) && value > 0) amounts.push({ value, index: m.index });
   }
-  if (amounts.length === 0) return NaN;
-
-  const kw = RECEIVED_RX.exec(hay);
-  if (kw) {
-    const after = amounts.find((a) => a.index >= kw.index);
-    if (after) return after.value;
-  }
-  return amounts[0].value;
+  return amounts.length ? amounts[0].value : NaN;
 }
 
 // Parsea un correo. Devuelve { isPayment, amount, detectedDate, snippet } o null.
@@ -96,15 +99,12 @@ export function parseNequiEmail({ subject = "", text = "", html = "", date = new
   const body = (text && text.trim()) || stripHtml(html);
   const haystack = `${subject}\n${body}`;
 
-  const hasMoney = /\$\s*[0-9]/.test(haystack);
-  if (!hasMoney) return null;
+  const amount = extractAmount(haystack);
+  if (!isFinite(amount) || amount <= 0) return null;
 
   const looksReceived = RECEIVED_RX.test(haystack);
   const looksSent = SENT_RX.test(haystack);
   const isPayment = looksReceived && !looksSent;
-
-  const amount = extractAmount(haystack);
-  if (!isFinite(amount) || amount <= 0) return null;
 
   return {
     isPayment,

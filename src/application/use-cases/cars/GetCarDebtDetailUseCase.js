@@ -80,6 +80,7 @@ export class GetCarDebtDetailUseCase {
         partial: false,
         paidAmount: 0,
         offDayReason: offDayMap.get(date)?.reason || null,
+        offDayDetail: offDayMap.get(date)?.detail || null,
       };
       // Consumir pagos hasta cubrir el día
       let needed = rate;
