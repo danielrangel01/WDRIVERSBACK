@@ -76,3 +76,26 @@ export class IPendingPaymentRepository {
   async update(_pending) { throw new Error("No implementado"); }
   async deleteAll() { throw new Error("No implementado"); }
 }
+
+export class IPushSubscriptionRepository {
+  async findAll() { throw new Error("No implementado"); }
+  async upsert(_subscription, _meta = {}) { throw new Error("No implementado"); }
+  async removeByEndpoint(_endpoint) { throw new Error("No implementado"); }
+  async deleteAll() { throw new Error("No implementado"); }
+}
+
+export class IReminderLogRepository {
+  async exists(_key) { throw new Error("No implementado"); }
+  async record(_key, _payload = {}) { throw new Error("No implementado"); }
+}
+
+export class IHandoverRepository {
+  async findAll() { throw new Error("No implementado"); }
+  async findByCar(_carId) { throw new Error("No implementado"); }
+  async findById(_id) { throw new Error("No implementado"); }
+  async findActiveByCar(_carId) { throw new Error("No implementado"); }
+  async create(_handover) { throw new Error("No implementado"); }
+  async update(_handover) { throw new Error("No implementado"); }
+  async delete(_id) { throw new Error("No implementado"); }
+  async deleteAll() { throw new Error("No implementado"); }
+}

@@ -30,7 +30,7 @@ const baseUri = (process.env.MONGODB_URI || "").trim();
 
 const APP_COLLECTIONS = [
   "users", "cars", "payments", "expenses", "documents",
-  "offdays", "settings", "refinances", "pendingpayments",
+  "offdays", "settings", "refinances", "pendingpayments", "handovers",
 ];
 
 function fail(msg) {

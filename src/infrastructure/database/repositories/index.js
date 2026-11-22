@@ -1,14 +1,15 @@
 import {
   IUserRepository, ICarRepository, IPaymentRepository,
   IExpenseRepository, IDocumentRepository, IOffDayRepository, ISettingsRepository, IRefinanceRepository,
-  IPendingPaymentRepository,
+  IPendingPaymentRepository, IPushSubscriptionRepository, IReminderLogRepository, IHandoverRepository,
 } from "../../../domain/repositories/index.js";
 import { User, Payment, Expense, VehicleDocument, OffDay, Settings, PendingPayment } from "../../../domain/entities/index.js";
 import { Refinance } from "../../../domain/entities/Refinance.js";
 import { Car } from "../../../domain/entities/Car.js";
+import { Handover } from "../../../domain/entities/Handover.js";
 import {
   UserModel, CarModel, PaymentModel, ExpenseModel, DocumentModel, OffDayModel, SettingsModel, RefinanceModel,
-  PendingPaymentModel,
+  PendingPaymentModel, PushSubscriptionModel, ReminderLogModel, HandoverModel,
 } from "../models/index.js";
 
 const id = (doc) => doc._id.toString();
@@ -197,15 +198,24 @@ export class MongoSettingsRepository extends ISettingsRepository {
   async get() {
     let d = await SettingsModel.findOne({ key: "global" });
     if (!d) d = await SettingsModel.create({ key: "global" });
-    return new Settings({ adminPhone: d.adminPhone, morningHour: d.morningHour, eveningHour: d.eveningHour });
+    return new Settings({
+      adminPhone: d.adminPhone, adminEmail: d.adminEmail,
+      remindersEnabled: d.remindersEnabled, morningHour: d.morningHour, eveningHour: d.eveningHour,
+    });
   }
   async update(settings) {
     const d = await SettingsModel.findOneAndUpdate(
       { key: "global" },
-      { key: "global", adminPhone: settings.adminPhone, morningHour: settings.morningHour, eveningHour: settings.eveningHour },
+      {
+        key: "global", adminPhone: settings.adminPhone, adminEmail: settings.adminEmail,
+        remindersEnabled: settings.remindersEnabled, morningHour: settings.morningHour, eveningHour: settings.eveningHour,
+      },
       { upsert: true, new: true }
     );
-    return new Settings({ adminPhone: d.adminPhone, morningHour: d.morningHour, eveningHour: d.eveningHour });
+    return new Settings({
+      adminPhone: d.adminPhone, adminEmail: d.adminEmail,
+      remindersEnabled: d.remindersEnabled, morningHour: d.morningHour, eveningHour: d.eveningHour,
+    });
   }
 }
 
@@ -291,5 +301,109 @@ export class MongoPendingPaymentRepository extends IPendingPaymentRepository {
   }
   async deleteAll() {
     await PendingPaymentModel.deleteMany({});
+  }
+}
+
+// ── PushSubscriptions (Web Push / PWA) ────────────────────────────────────────
+const toSubscription = (d) => ({
+  endpoint: d.endpoint,
+  subscription: { endpoint: d.endpoint, keys: { p256dh: d.keys?.p256dh || "", auth: d.keys?.auth || "" }, expirationTime: d.expirationTime ?? null },
+});
+
+// ── ReminderLog (idempotencia de recordatorios enviados) ──────────────────────
+export class MongoPushSubscriptionRepository extends IPushSubscriptionRepository {
+  async findAll() {
+    const docs = await PushSubscriptionModel.find().sort({ createdAt: -1 });
+    return docs.map(toSubscription);
+  }
+  async upsert(subscription, meta = {}) {
+    if (!subscription || !subscription.endpoint) return null;
+    await PushSubscriptionModel.findOneAndUpdate(
+      { endpoint: subscription.endpoint },
+      {
+        endpoint: subscription.endpoint,
+        keys: { p256dh: subscription.keys?.p256dh || "", auth: subscription.keys?.auth || "" },
+        expirationTime: subscription.expirationTime ?? null,
+        userAgent: (meta.userAgent || "").slice(0, 300),
+      },
+      { upsert: true, new: true }
+    );
+    return toSubscription({ endpoint: subscription.endpoint, keys: subscription.keys, expirationTime: subscription.expirationTime });
+  }
+  async removeByEndpoint(endpoint) {
+    if (!endpoint) return 0;
+    const r = await PushSubscriptionModel.deleteOne({ endpoint });
+    return r.deletedCount || 0;
+  }
+  async deleteAll() {
+    await PushSubscriptionModel.deleteMany({});
+  }
+}
+
+export class MongoReminderLogRepository extends IReminderLogRepository {
+  async exists(key) {
+    if (!key) return false;
+    const d = await ReminderLogModel.exists({ key });
+    return !!d;
+  }
+  async record(key, payload = {}) {
+    if (!key) return null;
+    try {
+      await ReminderLogModel.findOneAndUpdate(
+        { key },
+        { key, date: payload.date || "", moment: payload.moment || "", channels: payload.channels || {} },
+        { upsert: true, new: true }
+      );
+    } catch (err) {
+      if (err && err.code === 11000) return null;
+      throw err;
+    }
+    return { key };
+  }
+}
+
+// ── Handovers (entregas: conductor que tuvo el carro y desde/hasta cuándo) ─────
+const toHandover = (d) => new Handover({
+  id: id(d), carId: d.carId.toString(), driverName: d.driverName, driverPhone: d.driverPhone,
+  startDate: d.startDate, endDate: d.endDate, note: d.note, createdAt: d.createdAt,
+});
+
+export class MongoHandoverRepository extends IHandoverRepository {
+  async findAll() {
+    const docs = await HandoverModel.find().sort({ carId: 1, startDate: -1 });
+    return docs.map(toHandover);
+  }
+  async findByCar(carId) {
+    const docs = await HandoverModel.find({ carId }).sort({ startDate: -1 });
+    return docs.map(toHandover);
+  }
+  async findById(handoverId) {
+    const d = await HandoverModel.findById(handoverId).catch(() => null);
+    return d ? toHandover(d) : null;
+  }
+  async findActiveByCar(carId) {
+    const d = await HandoverModel.findOne({ carId, endDate: null }).sort({ startDate: -1 });
+    return d ? toHandover(d) : null;
+  }
+  async create(handover) {
+    const d = await HandoverModel.create({
+      carId: handover.carId, driverName: handover.driverName, driverPhone: handover.driverPhone,
+      startDate: handover.startDate, endDate: handover.endDate, note: handover.note,
+    });
+    return toHandover(d);
+  }
+  async update(handover) {
+    const d = await HandoverModel.findByIdAndUpdate(
+      handover.id,
+      { driverName: handover.driverName, driverPhone: handover.driverPhone, startDate: handover.startDate, endDate: handover.endDate, note: handover.note },
+      { new: true }
+    );
+    return d ? toHandover(d) : null;
+  }
+  async delete(handoverId) {
+    await HandoverModel.findByIdAndDelete(handoverId);
+  }
+  async deleteAll() {
+    await HandoverModel.deleteMany({});
   }
 }

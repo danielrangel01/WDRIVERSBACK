@@ -82,9 +82,11 @@ export function createApp() {
   app.get("/api/health", (req, res) => res.json({ status: "ok", env: config.env }));
   app.get("/robots.txt", (req, res) => res.type("text/plain").send("User-agent: *\nDisallow: /\n"));
 
-  const { useCases, tokenService } = buildContainer();
+  const { useCases, tokenService, repositories, notify } = buildContainer();
   app.locals.useCases = useCases;
-  const controllers = buildControllers(useCases);
+  app.locals.repositories = repositories;
+  app.locals.notify = notify;
+  const controllers = buildControllers(useCases, { notify });
   const authMiddleware = makeAuthMiddleware(tokenService);
 
   const authRouter = buildAuthRoutes(controllers, authMiddleware, loginLimiter);
@@ -114,12 +116,25 @@ function buildApiRoutes(controllers, authMiddleware) {
   api.use(authMiddleware);
   api.get("/data", controllers.getAllData);
   api.post("/reset", controllers.resetData);
+  api.get("/agenda", controllers.getAgenda);
+  api.get("/collections", controllers.getCollections);
+  api.get("/reminders", controllers.getReminders);
+  api.get("/push/public-key", controllers.getPushPublicKey);
+  api.post("/push/subscribe", controllers.subscribePush);
+  api.post("/push/unsubscribe", controllers.unsubscribePush);
   api.get("/cars", controllers.listCars);
   api.post("/cars", controllers.addCar);
   api.put("/cars/:id", controllers.updateCar);
   api.delete("/cars/:id", controllers.deactivateCar);
   api.post("/cars/:id/reactivate", controllers.reactivateCar);
   api.get("/cars/:id/debt-detail", controllers.getCarDebtDetail);
+  api.get("/cars/:id/statement", controllers.getAccountStatement);
+  api.post("/cars/:id/handover", controllers.registerHandover);
+  api.get("/cars/:id/handovers", controllers.listHandovers);
+  api.get("/handovers", controllers.listHandovers);
+  api.put("/handovers/:id", controllers.updateHandover);
+  api.post("/handovers/:id/close", controllers.closeHandover);
+  api.delete("/handovers/:id", controllers.deleteHandover);
   api.post("/payments", controllers.addPayment);
   api.delete("/payments/:id", controllers.deletePayment);
   api.post("/expenses", controllers.addExpense);

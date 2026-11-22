@@ -1,5 +1,6 @@
 import { NotFoundError, ValidationError } from "../../../shared/errors.js";
-import { totalBillableDays } from "../../../domain/services/MetricsService.js";
+import { buildBillableDays, allocatePayments } from "../../../domain/services/DebtAllocation.js";
+import { groupRowsByDriver } from "../../../domain/services/DriverAttribution.js";
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const validOid = (id) => typeof id === "string" && /^[0-9a-fA-F]{24}$/.test(id);
@@ -8,40 +9,19 @@ const safeNum = (v) => {
   return Number.isFinite(n) ? n : 0;
 };
 const todayStr = () => new Date().toISOString().slice(0, 10);
-
-/**
- * Genera la lista de días cobrables para un carro:
- *   - Desde startDate + 1 hasta today (inclusive)
- *   - Excluye los días no trabajados (offDays)
- */
-function buildBillableDays(startDate, today, offDaySet) {
-  if (!startDate) return [];
-  const days = [];
-  const cursor = new Date(startDate);
-  cursor.setDate(cursor.getDate() + 1); // el día de inicio NO cobra
-  const end = new Date(today);
-  while (cursor <= end) {
-    const ymd = cursor.toISOString().slice(0, 10);
-    if (!offDaySet.has(ymd)) days.push(ymd);
-    cursor.setDate(cursor.getDate() + 1);
-  }
-  return days;
-}
+const round = (v) => Math.round(safeNum(v));
 
 /**
  * Detalle de deuda de un carro: desglose día por día.
- *
- * Asignación de pagos (FIFO cronológico):
- *   - Ordenamos los pagos por fecha ascendente.
- *   - Cada pago cubre días consecutivos a partir del primer día impago.
- *   - Un día se marca como pagado si el acumulado de pagos cubre su tarifa.
- *   - Si un pago es parcial respecto al costo del día, el día queda "parcial".
+ * La asignación de pagos (FIFO cronológico) y el armado de días cobrables
+ * viven en `domain/services/DebtAllocation.js` (compartidos con el motor de cobranza).
  */
 export class GetCarDebtDetailUseCase {
-  constructor({ carRepository, paymentRepository, offDayRepository }) {
+  constructor({ carRepository, paymentRepository, offDayRepository, handoverRepository }) {
     this.cars = carRepository;
     this.payments = paymentRepository;
     this.offDays = offDayRepository;
+    this.handovers = handoverRepository;
   }
 
   async execute({ carId, today }) {
@@ -52,15 +32,16 @@ export class GetCarDebtDetailUseCase {
     const car = await this.cars.findById(carId);
     if (!car) throw new NotFoundError("El carro indicado no existe");
 
-    const [payments, offDays] = await Promise.all([
+    const [payments, offDays, handovers] = await Promise.all([
       this.payments.findAll(),
       this.offDays.findAll(),
+      this.handovers ? this.handovers.findByCar(carId) : Promise.resolve([]),
     ]);
 
     const carPayments = payments
       .filter((p) => String(p.carId) === String(car.id))
-      .map((p) => ({ id: p.id, date: p.date, amount: safeNum(p.amount), note: p.note }))
-      .sort((a, b) => a.date.localeCompare(b.date) || a.createdAt - b.createdAt);
+      .map((p) => ({ id: p.id, date: p.date, amount: safeNum(p.amount), note: p.note, createdAt: p.createdAt }))
+      .sort((a, b) => a.date.localeCompare(b.date) || (a.createdAt || 0) - (b.createdAt || 0));
 
     const carOffDays = offDays.filter((o) => String(o.carId) === String(car.id));
     const offDaySet = new Set(carOffDays.map((o) => o.date));
@@ -68,46 +49,17 @@ export class GetCarDebtDetailUseCase {
 
     const rate = safeNum(car.rate);
     const billableDates = buildBillableDays(car.startDate, t, offDaySet);
-
-    // Asignación FIFO de pagos a días
-    let payIdx = 0;
-    let payRemaining = 0;
-    const dayRows = billableDates.map((date) => {
-      const row = {
-        date,
-        amount: rate,
-        paid: false,
-        partial: false,
-        paidAmount: 0,
-        offDayReason: offDayMap.get(date)?.reason || null,
-        offDayDetail: offDayMap.get(date)?.detail || null,
-      };
-      // Consumir pagos hasta cubrir el día
-      let needed = rate;
-      while (needed > 0 && payIdx < carPayments.length) {
-        if (payRemaining <= 0) {
-          payRemaining = carPayments[payIdx].amount;
-          payIdx += 1;
-        }
-        const take = Math.min(payRemaining, needed);
-        row.paidAmount += take;
-        payRemaining -= take;
-        needed -= take;
-      }
-      if (row.paidAmount >= rate - 0.001) {
-        row.paid = true;
-      } else if (row.paidAmount > 0) {
-        row.partial = true;
-      }
-      row.remaining = Math.max(0, rate - row.paidAmount);
-      return row;
-    });
+    const dayRows = allocatePayments(billableDates, rate, carPayments, offDayMap);
 
     const totalExpected = billableDates.length * rate;
     const totalPaid = carPayments.reduce((s, p) => s + p.amount, 0);
     const totalDebt = Math.max(0, totalExpected - totalPaid);
     const unpaidDays = dayRows.filter((d) => !d.paid);
     const paidDays = dayRows.filter((d) => d.paid);
+
+    // Atribución por conductor: la deuda del día se cobra a quien tenía el carro.
+    const drivers = groupRowsByDriver(dayRows, handovers || []);
+    const driverDebt = round(drivers.reduce((s, d) => s + d.remaining, 0));
 
     return {
       carId: car.id,
@@ -122,6 +74,9 @@ export class GetCarDebtDetailUseCase {
       totalExpected,
       totalPaid,
       totalDebt,
+      driverDebt,
+      handovers: (handovers || []).map((h) => (h.toJSON ? h.toJSON() : h)),
+      drivers,
       payments: carPayments,
       offDays: carOffDays.map((o) => ({ date: o.date, reason: o.reason, detail: o.detail })),
       days: dayRows,

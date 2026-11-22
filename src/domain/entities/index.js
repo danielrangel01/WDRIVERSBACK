@@ -5,6 +5,7 @@ const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const MAX_NOTE = config.security.noteMaxLength;
 const MAX_NAME = config.security.nameMaxLength;
 const MAX_PHONE = config.security.phoneMaxLength;
+const MAX_EMAIL = 160;
 const MAX_CATEGORY = config.security.categoryMaxLength;
 const MAX_DOCTYPE = config.security.documentTypeMaxLength;
 
@@ -170,13 +171,27 @@ export class PendingPayment {
 }
 
 export class Settings {
-  constructor({ adminPhone = "", morningHour = 8, eveningHour = 20 } = {}) {
+  constructor({ adminPhone = "", adminEmail = "", remindersEnabled = true, morningHour = 8, eveningHour = 20 } = {}) {
     this.adminPhone = req(adminPhone, MAX_PHONE);
+    this.adminEmail = req(adminEmail, MAX_EMAIL);
+    this.remindersEnabled = remindersEnabled === undefined ? true : !!remindersEnabled;
     this.morningHour = clampHour(morningHour, 8);
     this.eveningHour = clampHour(eveningHour, 20);
   }
+  validate() {
+    if (this.adminEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(this.adminEmail)) {
+      throw new ValidationError("Correo inválido");
+    }
+    return this;
+  }
   toJSON() {
-    return { adminPhone: this.adminPhone, morningHour: this.morningHour, eveningHour: this.eveningHour };
+    return {
+      adminPhone: this.adminPhone,
+      adminEmail: this.adminEmail,
+      remindersEnabled: this.remindersEnabled,
+      morningHour: this.morningHour,
+      eveningHour: this.eveningHour,
+    };
   }
 }
 

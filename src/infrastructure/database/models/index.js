@@ -66,6 +66,8 @@ const settingsSchema = new Schema(
   {
     key: { type: String, default: "global", unique: true },
     adminPhone: { type: String, default: "" },
+    adminEmail: { type: String, default: "" },
+    remindersEnabled: { type: Boolean, default: true },
     morningHour: { type: Number, default: 8 },
     eveningHour: { type: Number, default: 20 },
   },
@@ -101,6 +103,42 @@ const refinanceSchema = new Schema(
   { timestamps: true }
 );
 
+// Suscripciones de Web Push (PWA) para enviar recordatorios al navegador.
+const pushSubscriptionSchema = new Schema(
+  {
+    endpoint: { type: String, required: true, unique: true },
+    keys: { p256dh: { type: String, default: "" }, auth: { type: String, default: "" } },
+    expirationTime: { type: Number, default: null },
+    userAgent: { type: String, default: "" },
+  },
+  { timestamps: true }
+);
+
+// Registro idempotente de recordatorios enviados (clave `fecha:momento`).
+const reminderLogSchema = new Schema(
+  {
+    key: { type: String, required: true, unique: true },
+    date: { type: String, default: "" },
+    moment: { type: String, default: "" },
+    channels: { type: Schema.Types.Mixed, default: {} },
+  },
+  { timestamps: true }
+);
+
+// Entregas (conductor que tuvo un carro y desde/hasta cuándo).
+const handoverSchema = new Schema(
+  {
+    carId: { type: Schema.Types.ObjectId, ref: "Car", required: true },
+    driverName: { type: String, required: true, default: "" },
+    driverPhone: { type: String, default: "" },
+    startDate: { type: String, required: true },
+    endDate: { type: String, default: null },
+    note: { type: String, default: "" },
+  },
+  { timestamps: true }
+);
+handoverSchema.index({ carId: 1, startDate: 1 });
+
 export const UserModel = mongoose.model("User", userSchema);
 export const CarModel = mongoose.model("Car", carSchema);
 export const PaymentModel = mongoose.model("Payment", paymentSchema);
@@ -110,3 +148,6 @@ export const OffDayModel = mongoose.model("OffDay", offDaySchema);
 export const SettingsModel = mongoose.model("Settings", settingsSchema);
 export const RefinanceModel = mongoose.model("Refinance", refinanceSchema);
 export const PendingPaymentModel = mongoose.model("PendingPayment", pendingPaymentSchema);
+export const PushSubscriptionModel = mongoose.model("PushSubscription", pushSubscriptionSchema);
+export const ReminderLogModel = mongoose.model("ReminderLog", reminderLogSchema);
+export const HandoverModel = mongoose.model("Handover", handoverSchema);

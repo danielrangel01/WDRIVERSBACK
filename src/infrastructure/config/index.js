@@ -230,4 +230,27 @@ export const config = {
     sinceDays: Number(process.env.NEQUI_MAIL_SINCE_DAYS || 14),
     syncEveryMs: Number(process.env.NEQUI_SYNC_EVERY_MS || 0),
   },
+  notifications: {
+    // Correo saliente (SMTP). Se activa solo si hay credenciales.
+    get emailEnabled() {
+      return !!(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS);
+    },
+    smtpHost: process.env.SMTP_HOST || "",
+    smtpPort: Number(process.env.SMTP_PORT || 465),
+    smtpSecure: (process.env.SMTP_SECURE || "true") !== "false",
+    smtpUser: process.env.SMTP_USER || "",
+    smtpPass: process.env.SMTP_PASS || "",
+    emailFrom: process.env.SMTP_FROM || process.env.SMTP_USER || "",
+    // Web Push (VAPID). Se activa solo si hay claves.
+    get pushEnabled() {
+      return !!(process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY);
+    },
+    vapidPublicKey: process.env.VAPID_PUBLIC_KEY || "",
+    vapidPrivateKey: process.env.VAPID_PRIVATE_KEY || "",
+    vapidSubject: process.env.VAPID_SUBJECT || "mailto:admin@wdrivers.app",
+    // Zona horaria para el cálculo de mañana/tarde (Colombia por defecto).
+    timezone: process.env.REMINDER_TZ || "America/Bogota",
+    checkEveryMs: Number(process.env.REMINDER_CHECK_EVERY_MS || 5 * 60 * 1000),
+    get enabled() { return this.emailEnabled || this.pushEnabled; },
+  },
 };

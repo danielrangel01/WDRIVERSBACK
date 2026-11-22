@@ -30,6 +30,13 @@ function today() {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
 }
 
+function nextDay() {
+  const d = new Date();
+  d.setDate(d.getDate() + 1);
+  const p = (x) => String(x).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
 function check(name, ok, detail = "") {
   results.push({ name, ok: !!ok, detail });
   const icon = ok ? "✔" : "✘";
@@ -87,7 +94,7 @@ async function main() {
   const data = await api("GET", "/api/data");
   const D = data.json || {};
   check("GET /api/data responde 200", data.status === 200, `→ ${data.status}`);
-  for (const key of ["cars", "payments", "expenses", "documents", "offDays", "settings", "refinances"]) {
+  for (const key of ["cars", "payments", "expenses", "documents", "offDays", "settings", "refinances", "handovers"]) {
     check(`/api/data incluye "${key}"`, Array.isArray(D[key]) || typeof D[key] === "object");
   }
 
@@ -149,8 +156,61 @@ async function main() {
   const refiCancel = await api("DELETE", `/api/refinances/${refiId}`);
   check("Cancelar refinanciamiento (ok)", refiCancel.status === 200 && refiCancel.json?.ok === true, `→ ${refiCancel.status}`);
 
-  // ── 6. Nequi (pagos entrantes por correo) ──────────────────────────────────
-  console.log("\n▸ 6. Nequi (pendientes · aprobar · descartar)");
+  // ── 6. Entregas de carro (handover / conductor) ────────────────────────────
+  console.log("\n▸ 6. Entregas de carro (handover)");
+  const ho = await api("POST", `/api/cars/${carId}/handover`, { body: { driverName: "E2E Conductor", driverPhone: "3001234567", date: today(), note: "E2E" } });
+  const hoId = ho.json?.id;
+  check("Registrar entrega (201)", ho.status === 201 && !!hoId, `→ ${ho.status}`);
+  check("La entrega queda vigente (active=true)", ho.json?.active === true);
+
+  const hoBadCar = await api("POST", "/api/cars/000000000000000000000000/handover", { body: { driverName: "X", date: today() } });
+  check("Entrega a carro inexistente es rechazada (404)", hoBadCar.status === 404, `→ ${hoBadCar.status}`);
+
+  const hoNoName = await api("POST", `/api/cars/${carId}/handover`, { body: { driverName: "   ", date: nextDay() } });
+  check("Entrega sin conductor es rechazada (400)", hoNoName.status === 400, `→ ${hoNoName.status}`);
+
+  const hoAfterBad = await api("GET", `/api/cars/${carId}/handovers`);
+  const vigenteTrasFallo = Array.isArray(hoAfterBad.json) ? hoAfterBad.json.find((h) => h.active) : null;
+  check("Una entrega inválida NO cierra la vigente", vigenteTrasFallo?.id === hoId, `→ ${vigenteTrasFallo?.driverName}`);
+
+  const ho2 = await api("POST", `/api/cars/${carId}/handover`, { body: { driverName: "E2E Conductor 2", date: nextDay() } });
+  const ho2Id = ho2.json?.id;
+  check("Segunda entrega (201)", ho2.status === 201 && !!ho2Id && ho2Id !== hoId, `→ ${ho2.status}`);
+  check("La nueva entrega arranca en la fecha indicada", ho2.json?.startDate === nextDay(), `→ ${ho2.json?.startDate}`);
+
+  const listHo = await api("GET", `/api/cars/${carId}/handovers`);
+  check("Listar entregas del carro (2)", listHo.status === 200 && Array.isArray(listHo.json) && listHo.json.length === 2, `→ ${listHo.json?.length}`);
+
+  const listAllHo = await api("GET", "/api/handovers");
+  check("Listar todas las entregas responde 200", listAllHo.status === 200 && Array.isArray(listAllHo.json));
+
+  // ── 7. Gestión del día · estado de cuenta · cobranza · recordatorios ────────
+  console.log("\n▸ 7. Gestión del día · estado de cuenta · cobranza · recordatorios");
+  const agenda = await api("GET", "/api/agenda");
+  const A = agenda.json || {};
+  check("GET /agenda responde 200", agenda.status === 200, `→ ${agenda.status}`);
+  check("Agenda incluye marcador de flota (fleetTotal/coveredCount)",
+    typeof A.summary?.fleetTotal === "number" && typeof A.summary?.coveredCount === "number",
+    `→ ${A.summary?.coveredCount}/${A.summary?.fleetTotal}`);
+  check("Agenda incluye checklist[]", Array.isArray(A.checklist));
+  const row = (A.checklist || []).find((c) => c.carId === carId);
+  check("El checklist atribuye el conductor vigente hoy", !!row && row.handoverId === hoId, `→ ${row?.driverName}`);
+
+  const st = await api("GET", `/api/cars/${carId}/statement`);
+  check("GET estado de cuenta responde 200", st.status === 200, `→ ${st.status}`);
+  check("Estado de cuenta trae desglose por conductor", Array.isArray(st.json?.drivers));
+  check("Estado de cuenta incluye texto de WhatsApp", typeof st.json?.whatsappText === "string" && st.json.whatsappText.length > 0);
+
+  const col = await api("GET", "/api/collections");
+  check("GET /collections responde 200", col.status === 200, `→ ${col.status}`);
+
+  const rem = await api("GET", "/api/reminders?moment=morning");
+  check("GET /reminders responde 200", rem.status === 200, `→ ${rem.status}`);
+  check("Recordatorios incluyen marcador de gestión", typeof rem.json?.counts?.fleetTotal === "number");
+  check("Recordatorios incluyen texto de WhatsApp", typeof rem.json?.whatsappText === "string");
+
+  // ── 8. Nequi (pagos entrantes por correo) ──────────────────────────────────
+  console.log("\n▸ 8. Nequi (pendientes · aprobar · descartar)");
   const pendingList = await api("GET", "/api/nequi/pending");
   const pendings = Array.isArray(pendingList.json) ? pendingList.json : [];
   check("GET /nequi/pending responde 200 con lista", pendingList.status === 200 && Array.isArray(pendingList.json), `→ ${pendings.length} pendientes`);
@@ -190,8 +250,8 @@ async function main() {
   const sync = await api("POST", "/api/nequi/sync");
   check("POST /nequi/sync responde sin error de servidor", sync.status === 200, `→ ${sync.status} ${sync.json?.reason || ""}`);
 
-  // ── 7. Gastos · Documentos · Días libres ───────────────────────────────────
-  console.log("\n▸ 7. Gastos · Documentos · Días libres");
+  // ── 9. Gastos · Documentos · Días libres ───────────────────────────────────
+  console.log("\n▸ 9. Gastos · Documentos · Días libres");
   const exp = await api("POST", "/api/expenses", { body: { date: today(), amount: 30000, category: "E2E", note: "prueba" } });
   const expId = exp.json?.id;
   check("Crear gasto (201)", exp.status === 201 && !!expId, `→ ${exp.status}`);
@@ -210,8 +270,13 @@ async function main() {
   const offClear = await api("DELETE", `/api/offdays/${today()}`);
   check("Limpiar día libre (ok)", offClear.status === 200, `→ ${offClear.status}`);
 
-  // ── 8. Limpieza (solo lo creado por el E2E) ────────────────────────────────
-  console.log("\n▸ 8. Limpieza de datos E2E");
+  // ── 10. Limpieza (solo lo creado por el E2E) ───────────────────────────────
+  console.log("\n▸ 10. Limpieza de datos E2E");
+  for (const hid of [ho2Id, hoId]) {
+    if (!hid) continue;
+    const delHo = await api("DELETE", `/api/handovers/${hid}`);
+    check(`Eliminar entrega ${hid.slice(-4)} (ok)`, delHo.status === 200 && delHo.json?.ok === true, `→ ${delHo.status}`);
+  }
   const deact = await api("DELETE", `/api/cars/${carId}`);
   check("Desactivar carro E2E (soft delete)", deact.status === 200 && deact.json?.ok === true, `→ ${deact.status}`);
 

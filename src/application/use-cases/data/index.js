@@ -1,7 +1,7 @@
 import { computeMetrics } from "../../../domain/services/MetricsService.js";
 
 export class GetAllDataUseCase {
-  constructor({ carRepository, paymentRepository, expenseRepository, documentRepository, offDayRepository, settingsRepository, refinanceRepository, pendingPaymentRepository }) {
+  constructor({ carRepository, paymentRepository, expenseRepository, documentRepository, offDayRepository, settingsRepository, refinanceRepository, pendingPaymentRepository, handoverRepository }) {
     this.cars = carRepository;
     this.payments = paymentRepository;
     this.expenses = expenseRepository;
@@ -10,10 +10,11 @@ export class GetAllDataUseCase {
     this.settings = settingsRepository;
     this.refinances = refinanceRepository;
     this.pendingPayments = pendingPaymentRepository;
+    this.handovers = handoverRepository;
   }
 
   async execute() {
-    const [cars, payments, expenses, documents, offDays, settings, refinances, pendingPayments] = await Promise.all([
+    const [cars, payments, expenses, documents, offDays, settings, refinances, pendingPayments, handovers] = await Promise.all([
       this.cars.findAll({ includeInactive: true }),
       this.payments.findAll(),
       this.expenses.findAll(),
@@ -22,6 +23,7 @@ export class GetAllDataUseCase {
       this.settings.get(),
       this.refinances.findAll(),
       this.pendingPayments ? this.pendingPayments.findAll({ status: "pending" }) : Promise.resolve([]),
+      this.handovers ? this.handovers.findAll() : Promise.resolve([]),
     ]);
 
     const activeCars = cars.filter((c) => c.active);
@@ -35,6 +37,7 @@ export class GetAllDataUseCase {
       offDays: offDays.map((o) => o.toJSON()),
       refinances: refinances.map((r) => r.toJSON()),
       pendingPayments: pendingPayments.map((p) => p.toJSON()),
+      handovers: handovers.map((h) => h.toJSON()),
       settings: settings.toJSON(),
       metrics,
     };
@@ -42,13 +45,14 @@ export class GetAllDataUseCase {
 }
 
 export class ResetDataUseCase {
-  constructor({ paymentRepository, expenseRepository, documentRepository, offDayRepository, refinanceRepository, pendingPaymentRepository }) {
+  constructor({ paymentRepository, expenseRepository, documentRepository, offDayRepository, refinanceRepository, pendingPaymentRepository, handoverRepository }) {
     this.payments = paymentRepository;
     this.expenses = expenseRepository;
     this.documents = documentRepository;
     this.offDays = offDayRepository;
     this.refinances = refinanceRepository;
     this.pendingPayments = pendingPaymentRepository;
+    this.handovers = handoverRepository;
   }
   async execute() {
     const results = await Promise.allSettled([
@@ -58,6 +62,7 @@ export class ResetDataUseCase {
       typeof this.offDays.deleteAll === "function" ? this.offDays.deleteAll() : Promise.resolve(),
       typeof this.refinances?.deleteAll === "function" ? this.refinances.deleteAll() : Promise.resolve(),
       typeof this.pendingPayments?.deleteAll === "function" ? this.pendingPayments.deleteAll() : Promise.resolve(),
+      typeof this.handovers?.deleteAll === "function" ? this.handovers.deleteAll() : Promise.resolve(),
     ]);
     const failed = results.filter((r) => r.status === "rejected").length;
     return { ok: failed === 0, skippedOrFailed: failed };

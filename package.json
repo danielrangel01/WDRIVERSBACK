@@ -54,7 +54,9 @@
     "jsonwebtoken": "^9.0.2",
     "mailparser": "^3.14.2",
     "mongoose": "^8.5.1",
-    "validator": "^13.15.35"
+    "nodemailer": "^10.6.1",
+    "validator": "^13.15.35",
+    "web-push": "^4.0.0"
   },
   "devDependencies": {
     "cross-env": "^10.1.0",

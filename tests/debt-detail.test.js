@@ -103,6 +103,27 @@ describe("📊 GetCarDebtDetailUseCase — desglose día a día de la deuda", ()
     expect(d.days[0].remaining).toBe(25000);
   });
 
+  it("un pago mayor a la tarifa diaria cubre varios días seguidos", async () => {
+    const car = makeCar({ startDate: "2024-01-01", rate: 100000 });
+    const offDayRepo = { findAll: vi.fn(async () => []) };
+    // Un solo pago de 300000 debe cubrir 3 días completos
+    const paymentRepo = {
+      findAll: vi.fn(async () => [
+        { id: "p1", carId: OID, date: "2024-01-02", amount: 300000, note: "", createdAt: 1 },
+      ]),
+    };
+    const carRepo = { findById: vi.fn(async () => car) };
+    const uc = new GetCarDebtDetailUseCase({
+      carRepository: carRepo, paymentRepository: paymentRepo, offDayRepository: offDayRepo,
+    });
+
+    const d = await uc.execute({ carId: OID, today: "2024-01-04" });
+    expect(d.days.every((x) => x.paid)).toBe(true);
+    expect(d.paidDays).toBe(3);
+    expect(d.unpaidDays).toBe(0);
+    expect(d.totalDebt).toBe(0);
+  });
+
   it("incluye offDays y payments en la respuesta", async () => {
     const car = makeCar({ startDate: "2024-01-01" });
     const offDayRepo = {

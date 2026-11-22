@@ -3,12 +3,16 @@ import { config } from "../../infrastructure/config/index.js";
 import {
   MongoUserRepository, MongoCarRepository, MongoPaymentRepository,
   MongoExpenseRepository, MongoDocumentRepository, MongoOffDayRepository, MongoSettingsRepository, MongoRefinanceRepository,
-  MongoPendingPaymentRepository,
+  MongoPendingPaymentRepository, MongoPushSubscriptionRepository, MongoReminderLogRepository,
+  MongoHandoverRepository,
 } from "../../infrastructure/database/repositories/index.js";
 
 import { BcryptHasher } from "../../infrastructure/security/BcryptHasher.js";
 import { JwtTokenService } from "../../infrastructure/security/JwtTokenService.js";
 import { NequiMailReader } from "../../infrastructure/mail/NequiMailReader.js";
+import { EmailNotifier } from "../../infrastructure/notify/EmailNotifier.js";
+import { PushNotifier } from "../../infrastructure/notify/PushNotifier.js";
+import { ReminderDispatcher } from "../../infrastructure/notify/ReminderDispatcher.js";
 
 import { LoginUseCase, ChangeCredentialsUseCase } from "../../application/use-cases/auth/index.js";
 import {
@@ -21,6 +25,15 @@ import { AddDocumentUseCase, DeleteDocumentUseCase } from "../../application/use
 import { ToggleOffDayUseCase, BulkOffDayUseCase, ClearOffDayUseCase } from "../../application/use-cases/offdays/index.js";
 import { GetSettingsUseCase, UpdateSettingsUseCase } from "../../application/use-cases/settings/index.js";
 import { GetAllDataUseCase, ResetDataUseCase } from "../../application/use-cases/data/index.js";
+import { GetAgendaUseCase } from "../../application/use-cases/agenda/index.js";
+import { GetCollectionsUseCase } from "../../application/use-cases/collections/index.js";
+import { GetAccountStatementUseCase } from "../../application/use-cases/statement/index.js";
+import { GetRemindersUseCase } from "../../application/use-cases/reminders/index.js";
+import {
+  RegisterHandoverUseCase, CloseHandoverUseCase, UpdateHandoverUseCase,
+  ListHandoversUseCase, DeleteHandoverUseCase,
+} from "../../application/use-cases/handovers/index.js";
+import { SubscribePushUseCase, UnsubscribePushUseCase } from "../../application/use-cases/push/index.js";
 import { CreateRefinanceUseCase, PayRefinanceUseCase, CancelRefinanceUseCase } from "../../application/use-cases/refinances/index.js";
 import {
   SyncNequiUseCase, ListPendingPaymentsUseCase, ApprovePendingPaymentUseCase, DismissPendingPaymentUseCase,
@@ -36,12 +49,36 @@ export function buildContainer() {
   const settingsRepository = new MongoSettingsRepository();
   const refinanceRepository = new MongoRefinanceRepository();
   const pendingPaymentRepository = new MongoPendingPaymentRepository();
+  const pushSubscriptionRepository = new MongoPushSubscriptionRepository();
+  const reminderLogRepository = new MongoReminderLogRepository();
+  const handoverRepository = new MongoHandoverRepository();
 
   const passwordHasher = new BcryptHasher();
   const tokenService = new JwtTokenService(config.jwtSecret, config.jwtExpiresIn);
   const mailReader = new NequiMailReader(config.nequi);
 
+  // Notificadores (correo SMTP + Web Push). Quedan inactivos si faltan credenciales.
+  const emailNotifier = new EmailNotifier({
+    host: config.notifications.smtpHost,
+    port: config.notifications.smtpPort,
+    secure: config.notifications.smtpSecure,
+    user: config.notifications.smtpUser,
+    pass: config.notifications.smtpPass,
+    from: config.notifications.emailFrom,
+  });
+  const pushNotifier = new PushNotifier({
+    publicKey: config.notifications.vapidPublicKey,
+    privateKey: config.notifications.vapidPrivateKey,
+    subject: config.notifications.vapidSubject,
+  });
+  const reminderDispatcher = new ReminderDispatcher({ emailNotifier, pushNotifier, pushSubscriptionRepository });
+
   const addPayment = new AddPaymentUseCase({ paymentRepository, carRepository });
+
+  const getAgenda = new GetAgendaUseCase({
+    carRepository, paymentRepository, offDayRepository, refinanceRepository, documentRepository, pendingPaymentRepository,
+    handoverRepository,
+  });
 
   const useCases = {
     login: new LoginUseCase({ userRepository, passwordHasher, tokenService }),
@@ -51,7 +88,7 @@ export function buildContainer() {
     updateCar: new UpdateCarUseCase({ carRepository }),
     deactivateCar: new DeactivateCarUseCase({ carRepository }),
     reactivateCar: new ReactivateCarUseCase({ carRepository }),
-    getCarDebtDetail: new GetCarDebtDetailUseCase({ carRepository, paymentRepository, offDayRepository }),
+    getCarDebtDetail: new GetCarDebtDetailUseCase({ carRepository, paymentRepository, offDayRepository, handoverRepository }),
     addPayment,
     deletePayment: new DeletePaymentUseCase({ paymentRepository }),
     addExpense: new AddExpenseUseCase({ expenseRepository }),
@@ -69,14 +106,40 @@ export function buildContainer() {
     getAllData: new GetAllDataUseCase({
       carRepository, paymentRepository, expenseRepository,
       documentRepository, offDayRepository, settingsRepository, refinanceRepository,
-      pendingPaymentRepository,
+      pendingPaymentRepository, handoverRepository,
     }),
-    resetData: new ResetDataUseCase({ paymentRepository, expenseRepository, documentRepository, offDayRepository, refinanceRepository, pendingPaymentRepository }),
+    resetData: new ResetDataUseCase({ paymentRepository, expenseRepository, documentRepository, offDayRepository, refinanceRepository, pendingPaymentRepository, handoverRepository }),
+    getAgenda,
+    getCollections: new GetCollectionsUseCase({ carRepository, paymentRepository, offDayRepository, refinanceRepository }),
+    getAccountStatement: new GetAccountStatementUseCase({ carRepository, paymentRepository, offDayRepository, refinanceRepository, handoverRepository }),
+    registerHandover: new RegisterHandoverUseCase({ handoverRepository, carRepository }),
+    closeHandover: new CloseHandoverUseCase({ handoverRepository }),
+    updateHandover: new UpdateHandoverUseCase({ handoverRepository }),
+    listHandovers: new ListHandoversUseCase({ handoverRepository }),
+    deleteHandover: new DeleteHandoverUseCase({ handoverRepository }),
+    getReminders: new GetRemindersUseCase({ agendaUseCase: getAgenda, settingsRepository }),
+    subscribePush: new SubscribePushUseCase({ pushSubscriptionRepository }),
+    unsubscribePush: new UnsubscribePushUseCase({ pushSubscriptionRepository }),
     syncNequi: new SyncNequiUseCase({ pendingPaymentRepository, mailReader }),
     listPendingPayments: new ListPendingPaymentsUseCase({ pendingPaymentRepository }),
     approvePendingPayment: new ApprovePendingPaymentUseCase({ pendingPaymentRepository, addPaymentUseCase: addPayment }),
     dismissPendingPayment: new DismissPendingPaymentUseCase({ pendingPaymentRepository }),
   };
 
-  return { useCases, tokenService, mailReader, repositories: { userRepository, carRepository, pendingPaymentRepository }, passwordHasher };
+  return {
+    useCases,
+    tokenService,
+    mailReader,
+    passwordHasher,
+    repositories: {
+      userRepository, carRepository, pendingPaymentRepository,
+      settingsRepository, reminderLogRepository, pushSubscriptionRepository,
+      handoverRepository,
+    },
+    notify: {
+      emailNotifier, pushNotifier, reminderDispatcher,
+      publicKey: config.notifications.vapidPublicKey,
+      channels: reminderDispatcher.channels,
+    },
+  };
 }

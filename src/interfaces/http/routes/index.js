@@ -18,6 +18,16 @@ export function buildRoutes(controllers, authMiddleware) {
   api.get("/data", controllers.getAllData);
   api.post("/reset", controllers.resetData);
 
+  // agenda (centro de gestión del día)
+  api.get("/agenda", controllers.getAgenda);
+  api.get("/collections", controllers.getCollections);
+  api.get("/reminders", controllers.getReminders);
+
+  // push (Web Push / PWA)
+  api.get("/push/public-key", controllers.getPushPublicKey);
+  api.post("/push/subscribe", controllers.subscribePush);
+  api.post("/push/unsubscribe", controllers.unsubscribePush);
+
   // cars
   api.get("/cars", controllers.listCars);
   api.post("/cars", controllers.addCar);
@@ -25,6 +35,15 @@ export function buildRoutes(controllers, authMiddleware) {
   api.delete("/cars/:id", controllers.deactivateCar);       // soft delete
   api.post("/cars/:id/reactivate", controllers.reactivateCar);
   api.get("/cars/:id/debt-detail", controllers.getCarDebtDetail);
+  api.get("/cars/:id/statement", controllers.getAccountStatement);
+  api.post("/cars/:id/handover", controllers.registerHandover);
+  api.get("/cars/:id/handovers", controllers.listHandovers);
+
+  // handovers (entregas / conductores)
+  api.get("/handovers", controllers.listHandovers);
+  api.put("/handovers/:id", controllers.updateHandover);
+  api.post("/handovers/:id/close", controllers.closeHandover);
+  api.delete("/handovers/:id", controllers.deleteHandover);
 
   // payments
   api.post("/payments", controllers.addPayment);
