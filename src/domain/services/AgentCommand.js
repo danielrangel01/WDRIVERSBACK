@@ -9,6 +9,7 @@
  *   ABC123 taller       → marcar el día libre (taller/descanso/no trabajo/otro)
  *   estado / meta       → resumen y predicción del día
  *   pendientes          → lista numerada de lo que falta
+ *   cierres             → cierres pendientes (días con carros sin gestionar)
  *   ABC123              → detalle de un carro
  *   ayuda               → guía de uso
  */
@@ -20,6 +21,7 @@ export const INTENT = {
   PAYMENT: "payment",
   OFFDAY: "offday",
   CHECKIN: "checkin",
+  CLOSURES: "closures",
   CLOSE: "close",
   CAR: "car",
   UNKNOWN: "unknown",
@@ -29,6 +31,8 @@ export const INTENT = {
 const OFFDAY_KEYS = ["taller", "mecanic", "reparac", "descans", "libre", "no trabajo", "no trabaja", "no laboro"];
 const PAYMENT_KEYS = ["paga", "pago", "abon", "consign", "transfer", "transfir", "deposit"];
 const CHECKIN_KEYS = ["revisar", "chequeo", "checkin", "iniciar", "empezar", "comenzar", "uno por uno", "paso a paso"];
+// Cierres pendientes (plural/frases) va ANTES de CLOSE, que es el cierre del día.
+const CLOSURES_KEYS = ["cierres", "cierre pendiente", "cierre incompleto", "cierre anterior", "cerrar pendiente", "cerrar pendientes", "pendientes anteriores"];
 const CLOSE_KEYS = ["cierre", "cerrar", "close"];
 const PENDING_KEYS = ["pendiente", "falta", "quien debe", "quienes deben", "por cobrar", "deudor"];
 const STATUS_KEYS = ["estado", "resumen", "como va", "como vamos", "situacion", "reporte", "meta", "balance", "corte"];
@@ -143,6 +147,8 @@ export function parseCommand(input) {
     result.intent = INTENT.PAYMENT;
   } else if (hasKey(raw, CHECKIN_KEYS)) {
     result.intent = INTENT.CHECKIN;
+  } else if (hasKey(raw, CLOSURES_KEYS)) {
+    result.intent = INTENT.CLOSURES;
   } else if (hasKey(raw, CLOSE_KEYS)) {
     result.intent = INTENT.CLOSE;
   } else if (hasKey(raw, PENDING_KEYS)) {

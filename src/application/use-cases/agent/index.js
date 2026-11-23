@@ -37,6 +37,20 @@ const PAY_WORDS = /\b(si|ya|listo|ok|pago|pagado|abono|consign|transfer|deposit)
 // Normaliza la clave de sesión (dígitos WhatsApp; "tg:<id>" Telegram).
 const agentKey = (v) => String(v || "").trim().replace(/[^a-zA-Z0-9:_-]/g, "");
 
+// dd/mm/aaaa a partir de "aaaa-mm-dd".
+const dmy = (iso) => {
+  const [y, m, d] = String(iso || "").split("-");
+  return d ? `${d}/${m}/${y}` : String(iso || "");
+};
+
+// Suma (o resta) días a una fecha "aaaa-mm-dd" (aritmética sobre el string).
+const addDays = (iso, delta) => {
+  const [y, m, d] = String(iso || "").split("-").map(Number);
+  const dt = new Date(Date.UTC(y || 1970, (m || 1) - 1, d || 1));
+  dt.setUTCDate(dt.getUTCDate() + delta);
+  return dt.toISOString().slice(0, 10);
+};
+
 /**
  * Agente conversacional determinista (inbound) por WhatsApp o Telegram.
  * El administrador responde/escribe y el agente traduce el mensaje a acciones
@@ -49,7 +63,7 @@ const agentKey = (v) => String(v || "").trim().replace(/[^a-zA-Z0-9:_-]/g, "");
  * elige con el parámetro `channel` ("whatsapp" | "telegram").
  */
 export class WhatsAppAgentUseCase {
-  constructor({ getAgenda, getSettings, addPayment, toggleOffDay, sendWhatsApp, sendTelegram, agentSessionRepository, checkinTemplate, telegramChatId } = {}) {
+  constructor({ getAgenda, getSettings, addPayment, toggleOffDay, sendWhatsApp, sendTelegram, agentSessionRepository, checkinTemplate, telegramChatId, closureLookbackDays } = {}) {
     this.getAgenda = getAgenda;
     this.getSettings = getSettings;
     this.addPayment = addPayment;
@@ -60,6 +74,8 @@ export class WhatsAppAgentUseCase {
     this.checkinTemplate = checkinTemplate || "wdrivers_checkin_util";
     // Respaldo del chat id del admin (si no está en Ajustes).
     this.telegramChatId = telegramChatId || "";
+    // Cuántos días atrás se buscan cierres pendientes/incompletos.
+    this.closureLookbackDays = Number(closureLookbackDays) > 0 ? Number(closureLookbackDays) : 30;
   }
 
   /** Clave de sesión por canal (evita colisiones entre WhatsApp y Telegram). */
@@ -129,34 +145,105 @@ export class WhatsAppAgentUseCase {
 
   // ── Enrutado de comandos ────────────────────────────────────────────────
   async handleCommand(cmd, phone, session) {
-    const agenda = await this.getAgenda.execute();
-    const active = session && session.status === "active" && session.date === agenda.date;
+    const todayAgenda = await this.getAgenda.execute();
+    const active = session && session.status === "active";
+    const selecting = session && session.status === "closures";
+    // Durante una revisión activa (de hoy o de una fecha anterior elegida) las
+    // acciones aplican al día de la SESIÓN, no necesariamente a hoy.
+    const sessionAgenda = active ? await this.agendaFor(session) : todayAgenda;
 
     switch (cmd.intent) {
       case INTENT.HELP:
         return { text: this.helpText() };
       case INTENT.STATUS:
-        return { text: this.statusText(agenda) };
+        return { text: this.statusText(todayAgenda) };
       case INTENT.PENDING:
-        return { text: this.pendingText(agenda) };
+        return { text: this.pendingText(todayAgenda) };
       case INTENT.CHECKIN:
-        return this.startCheckin(phone, agenda);
+        return this.startCheckin(phone, todayAgenda);
+      case INTENT.CLOSURES:
+        return this.startClosures(phone, todayAgenda);
       case INTENT.CLOSE:
-        return { text: buildDayCloseReport(agenda) };
+        return { text: buildDayCloseReport(todayAgenda) };
       case INTENT.PAYMENT:
       case INTENT.OFFDAY: {
         // Dentro de un check-in y sin carro explícito → aplica al carro actual.
-        if (active && cmd.refs.length === 0) return this.answerCurrent(session, cmd, agenda);
+        if (active && cmd.refs.length === 0) return this.answerCurrent(session, cmd, sessionAgenda);
         return cmd.intent === INTENT.PAYMENT
-          ? this.runPayment(cmd, agenda)
-          : this.runOffDay(cmd, agenda);
+          ? this.runPayment(cmd, sessionAgenda)
+          : this.runOffDay(cmd, sessionAgenda);
       }
       default: {
-        if (active && cmd.refs.length === 0) return this.answerCurrent(session, cmd, agenda);
-        const car = this.resolveCar(agenda, cmd.refs);
+        // Elegir un día de la lista de cierres pendientes (responder con número).
+        if (selecting) {
+          const picked = await this.pickClosure(session, cmd);
+          if (picked) return picked;
+        }
+        if (active && cmd.refs.length === 0) return this.answerCurrent(session, cmd, sessionAgenda);
+        const car = this.resolveCar(sessionAgenda, cmd.refs);
         return { text: car ? this.carText(car) : this.helpText() };
       }
     }
+  }
+
+  /** Agenda de la fecha de la sesión (o de hoy si no hay sesión). */
+  async agendaFor(session) {
+    const date = session && session.date;
+    return date ? this.getAgenda.execute({ date }) : this.getAgenda.execute();
+  }
+
+  // ── Cierres pendientes ──────────────────────────────────────────────────
+  /**
+   * Lista los cierres pendientes/incompletos: días recientes (dentro de la
+   * ventana configurada) que quedaron con carros sin gestionar. Guarda una
+   * sesión de selección para poder elegir el día por número.
+   */
+  async startClosures(phone, todayAgenda) {
+    const today = todayAgenda.date;
+    const dates = [];
+    for (let i = 1; i <= this.closureLookbackDays; i += 1) dates.push(addDays(today, -i));
+    const agendas = await Promise.all(dates.map((d) => this.getAgenda.execute({ date: d })));
+    const items = agendas
+      .filter((a) => (a.pendingCars || []).length > 0)
+      .map((a) => ({
+        date: a.date,
+        pending: (a.pendingCars || []).length,
+        amount: (a.summary && a.summary.collectTodayAmount) || 0,
+      }));
+
+    if (items.length === 0) {
+      if (this.sessions) await this.sessions.clear(agentKey(phone));
+      return { text: `✅ No hay cierres pendientes en los últimos ${this.closureLookbackDays} días. Todo está al día.` };
+    }
+
+    const session = {
+      phone: agentKey(phone),
+      date: today,
+      queue: items.map((i) => i.date),
+      index: 0,
+      answers: [],
+      status: "closures",
+    };
+    if (this.sessions) await this.sessions.save(session);
+
+    const lines = [`🗂️ *Cierres pendientes* (últimos ${this.closureLookbackDays} días)`, ""];
+    items.forEach((it, i) => {
+      lines.push(`${i + 1}. ${dmy(it.date)} — ${it.pending} sin gestionar · ${formatCOP(it.amount)}`);
+    });
+    lines.push("", "Responde con el *número* del día que quieres gestionar.");
+    lines.push("_Escribe *revisar* para gestionar el día de hoy._");
+    return { text: lines.join("\n") };
+  }
+
+  /** Arranca la revisión de un día elegido de la lista de cierres pendientes. */
+  async pickClosure(session, cmd) {
+    const ref = (cmd.refs || []).find((r) => r.kind === "index");
+    if (!ref) return null;
+    const date = (session.queue || [])[ref.value - 1];
+    if (!date) {
+      return { text: `⚠️ No hay un día con el número *${ref.value}*. Escribe *cierres* para ver la lista.` };
+    }
+    return this.startCheckin(session.phone, await this.getAgenda.execute({ date }));
   }
 
   // ── Acciones puntuales ──────────────────────────────────────────────────
@@ -164,7 +251,7 @@ export class WhatsAppAgentUseCase {
     const car = this.resolveCar(agenda, cmd.refs);
     if (!car) return { text: this.askCarText("registrar el pago") };
     const line = await this.doPay(car, agenda.date, cmd.amount);
-    const updated = await this.getAgenda.execute();
+    const updated = await this.getAgenda.execute({ date: agenda.date });
     return { text: [line, this.markerLine(updated)].join("\n") };
   }
 
@@ -172,7 +259,7 @@ export class WhatsAppAgentUseCase {
     const car = this.resolveCar(agenda, cmd.refs);
     if (!car) return { text: this.askCarText("marcar el día libre") };
     const line = await this.doOff(car, agenda.date, cmd.reason);
-    const updated = await this.getAgenda.execute();
+    const updated = await this.getAgenda.execute({ date: agenda.date });
     return { text: [line, this.markerLine(updated)].join("\n") };
   }
 
@@ -202,7 +289,7 @@ export class WhatsAppAgentUseCase {
     const agenda = agendaParam || (await this.getAgenda.execute());
     const pending = agenda.pendingCars || [];
     if (pending.length === 0) {
-      return { text: ["🏆 ¡Todo se ve gestionado hoy!", "", buildDayCloseReport(agenda)].join("\n") };
+      return { text: [`🏆 ¡Todo se ve gestionado! (${dmy(agenda.date)})`, "", buildDayCloseReport(agenda)].join("\n") };
     }
     const session = {
       phone: agentKey(phone),
@@ -213,8 +300,8 @@ export class WhatsAppAgentUseCase {
       status: "active",
     };
     if (this.sessions) await this.sessions.save(session);
-    const out = await this.askCurrent(session);
-    out.text = `📋 *Revisión paso a paso* — ${pending.length} carro(s) por gestionar.\n\n${out.text}`;
+    const out = await this.askCurrent(session, agenda);
+    out.text = `📋 *Revisión paso a paso* — ${dmy(agenda.date)}\n${pending.length} carro(s) por gestionar.\n\n${out.text}`;
     return out;
   }
 
@@ -335,13 +422,9 @@ export class WhatsAppAgentUseCase {
       return { text: "ℹ️ No hay una revisión activa. Escribe *revisar* para iniciarla." };
     }
 
-    const agenda = await this.getAgenda.execute();
-    // La sesión debe ser del día actual: un botón viejo (de ayer) no debe
-    // actuar sobre la agenda de hoy. Se descarta la sesión obsoleta.
-    if (session.date && session.date !== agenda.date) {
-      if (this.sessions) await this.sessions.clear(session.phone);
-      return { text: "ℹ️ Esa revisión es de otro día. Escribe *revisar* para iniciar la de hoy." };
-    }
+    // La acción aplica al día de la sesión (hoy, o la fecha anterior elegida
+    // desde *cierres*). Así un botón de una revisión antigua afecta a SU día.
+    const agenda = await this.agendaFor(session);
     const car = this.findCar(agenda, carId);
     if (!car) return this.advance(session, agenda, "");
 
@@ -388,7 +471,7 @@ export class WhatsAppAgentUseCase {
 
   /** Pregunta el carro actual con botones (Ya pagó / En taller / Sin novedad). */
   async askCurrent(session, agendaParam) {
-    const agenda = agendaParam || (await this.getAgenda.execute());
+    const agenda = agendaParam || (await this.agendaFor(session));
     const carId = session.queue[session.index];
     const car = this.findCar(agenda, carId);
     if (!car) return this.finishCheckin(session, "");
@@ -412,7 +495,7 @@ export class WhatsAppAgentUseCase {
   /** Cierra la revisión: limpia la sesión y envía el reporte del día. */
   async finishCheckin(session, line) {
     if (this.sessions) await this.sessions.clear(session.phone);
-    const agenda = await this.getAgenda.execute();
+    const agenda = await this.agendaFor(session);
     const head = line ? `${line}\n\n` : "";
     return { text: head + buildDayCloseReport(agenda) };
   }
@@ -501,6 +584,7 @@ export class WhatsAppAgentUseCase {
       "Escríbeme así:",
       "• revisar — revisión paso a paso, carro por carro",
       "• cierre — resumen completo del día",
+      "• cierres — cierres pendientes (días con carros sin gestionar)",
       "• ABC123 pagó 90000 — registra un pago",
       "• 3 ya pagó — pago del carro #3 de la lista",
       "• ABC123 taller — marca el carro libre hoy",

@@ -3,6 +3,7 @@ import crypto from "crypto";
 import { WhatsAppAgentUseCase } from "../src/application/use-cases/agent/index.js";
 import { extractIncomingMessages } from "../src/interfaces/http/routes/whatsappWebhook.js";
 import { buildDayCloseReport } from "../src/domain/services/DayCloseReport.js";
+import { INTENT } from "../src/domain/services/AgentCommand.js";
 import { createApp } from "../src/interfaces/http/app.js";
 import { config } from "../src/infrastructure/config/index.js";
 
@@ -276,6 +277,74 @@ describe("🌙 Cierre del día (reporte)", () => {
 
   it("ignora agendas vacías sin romper", () => {
     expect(() => buildDayCloseReport({ date: "2026-11-23" })).not.toThrow();
+  });
+});
+
+describe("🗂️ Cierres pendientes (opción del menú)", () => {
+  const TODAY = "2026-11-23";
+  const item = (id, plate, debt) => ({
+    carId: id, plate, name: plate, debt, dailyTotal: debt, rate: debt,
+    paidToday: 0, covered: false, offToday: false, driverName: "",
+  });
+  const agendaOn = (date, pending = []) => ({
+    date,
+    summary: {
+      coveredCount: 0, fleetTotal: pending.length,
+      collectTodayAmount: pending.reduce((s, c) => s + c.debt, 0),
+      pendingCarsCount: pending.length, fleetDebt: 0,
+    },
+    forecast: null, checklist: pending, pendingCars: pending,
+    refinances: [], documents: [], nequiPending: [],
+  });
+
+  function makeClosuresAgent(byDate) {
+    const sessionRepo = makeSessionRepo();
+    const deps = {
+      getSettings: { execute: vi.fn().mockResolvedValue({ adminPhone: ADMIN }) },
+      getAgenda: { execute: vi.fn(async ({ date } = {}) => byDate[date || TODAY] || agendaOn(date || TODAY, [])) },
+      addPayment: { execute: vi.fn().mockResolvedValue({ id: "p1" }) },
+      toggleOffDay: { execute: vi.fn().mockResolvedValue({ active: true }) },
+      sendWhatsApp: { execute: vi.fn().mockResolvedValue({ ok: true }) },
+      agentSessionRepository: sessionRepo,
+    };
+    return { agent: new WhatsAppAgentUseCase({ ...deps, closureLookbackDays: 30 }), deps, sessionRepo };
+  }
+
+  beforeEach(() => vi.clearAllMocks());
+
+  it("'cierres' lista los días recientes con carros sin gestionar", async () => {
+    const { agent } = makeClosuresAgent({
+      [TODAY]: agendaOn(TODAY, []),
+      "2026-11-22": agendaOn("2026-11-22", [item(CAR_A, "ABC123", 90000)]),
+      "2026-11-20": agendaOn("2026-11-20", [item(CAR_A, "ABC123", 90000), item(CAR_B, "XYZ789", 80000)]),
+    });
+    const r = await agent.handleIncoming({ from: FROM, text: "cierres" });
+    expect(r.intent).toBe(INTENT.CLOSURES);
+    expect(r.reply).toContain("Cierres pendientes");
+    expect(r.reply).toContain("22/11/2026");
+    expect(r.reply).toContain("20/11/2026");
+    expect(r.reply).not.toContain("21/11/2026"); // ese día quedó completo
+  });
+
+  it("elegir un día arranca su revisión y registra el pago en ESA fecha", async () => {
+    const { agent, deps } = makeClosuresAgent({
+      [TODAY]: agendaOn(TODAY, []),
+      "2026-11-22": agendaOn("2026-11-22", [item(CAR_A, "ABC123", 90000)]),
+    });
+    await agent.handleIncoming({ from: FROM, text: "cierres" });
+    const sel = await agent.handleIncoming({ from: FROM, text: "1" });
+    expect(sel.reply).toContain("Revisión paso a paso");
+    expect(sel.reply).toContain("22/11/2026");
+    await agent.handleIncoming({ from: FROM, text: "ya pagó" });
+    expect(deps.addPayment.execute).toHaveBeenCalledWith(
+      expect.objectContaining({ carId: CAR_A, date: "2026-11-22" })
+    );
+  });
+
+  it("avisa cuando no hay cierres pendientes", async () => {
+    const { agent } = makeClosuresAgent({ [TODAY]: agendaOn(TODAY, []) });
+    const r = await agent.handleIncoming({ from: FROM, text: "cierres" });
+    expect(r.reply).toContain("No hay cierres pendientes");
   });
 });
 

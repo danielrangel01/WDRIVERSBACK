@@ -90,6 +90,10 @@ describe("🧩 AgentCommand (parser determinista)", () => {
     expect(parseCommand("estado").intent).toBe(INTENT.STATUS);
     expect(parseCommand("quien falta").intent).toBe(INTENT.PENDING);
     expect(parseCommand("ayuda").intent).toBe(INTENT.HELP);
+    // "cierres" (plural) = cierres pendientes; "cierre" (singular) = cierre del día.
+    expect(parseCommand("cierres").intent).toBe(INTENT.CLOSURES);
+    expect(parseCommand("cierres pendientes").intent).toBe(INTENT.CLOSURES);
+    expect(parseCommand("cierre").intent).toBe(INTENT.CLOSE);
 
     const noCar = parseCommand("ese carro ya pagó");
     expect(noCar.intent).toBe(INTENT.PAYMENT);
