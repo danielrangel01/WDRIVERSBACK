@@ -29,12 +29,14 @@ const buildTemplateComponents = (counts = {}) => [
  * se elige con `settings.notifyChannel` para no duplicar avisos.
  */
 export class ReminderDispatcher {
-  constructor({ emailNotifier, pushNotifier, whatsappNotifier, telegramNotifier, pushSubscriptionRepository } = {}) {
+  constructor({ emailNotifier, pushNotifier, whatsappNotifier, telegramNotifier, pushSubscriptionRepository, telegramChatId = "" } = {}) {
     this.email = emailNotifier;
     this.push = pushNotifier;
     this.whatsapp = whatsappNotifier;
     this.telegram = telegramNotifier;
     this.pushSubs = pushSubscriptionRepository;
+    // Respaldo del chat id del admin (env) si no está en Ajustes.
+    this.telegramChatId = telegramChatId || "";
   }
 
   get channels() {
@@ -61,7 +63,7 @@ export class ReminderDispatcher {
           : `🌅 W Drivers — Buenos días ${dmy(date)}`;
     const channel = this.activeChatChannel(settings);
     const phone = (settings.adminPhone || "").replace(/\D/g, "");
-    const chatId = String(settings.telegramChatId || "").trim();
+    const chatId = String(settings.telegramChatId || this.telegramChatId || "").trim();
     const waLink = (channel === "whatsapp" && phone)
       ? `https://wa.me/${phone}?text=${encodeURIComponent(whatsappText)}`
       : "";

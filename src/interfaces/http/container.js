@@ -89,6 +89,7 @@ export function buildContainer() {
   });
   const reminderDispatcher = new ReminderDispatcher({
     emailNotifier, pushNotifier, whatsappNotifier, telegramNotifier, pushSubscriptionRepository,
+    telegramChatId: config.notifications.telegramAdminChatId,
   });
 
   const addPayment = new AddPaymentUseCase({ paymentRepository, carRepository });
