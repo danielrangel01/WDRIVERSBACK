@@ -90,6 +90,30 @@ describe("🟢 WhatsAppNotifier (Cloud API)", () => {
     expect(tplPayload.template.language.code).toBe("es");
   });
 
+  it("send adjunta el texto como parámetro {{1}} de la plantilla, aplanado a una línea", async () => {
+    fetch
+      .mockResolvedValueOnce(errJson(400, { code: 131047, message: "re-engagement" }))
+      .mockResolvedValueOnce(okJson({ messages: [{ id: "wamid.tpl2" }] }));
+    const n = make({ template: "wdrivers_aviso" });
+    const r = await n.send({ to: "573001112233", text: "Linea 1\nLinea 2\t\tfin" });
+
+    expect(r.messages[0].id).toBe("wamid.tpl2");
+    const tpl = JSON.parse(fetch.mock.calls[1][1].body).template;
+    expect(tpl.components[0].type).toBe("body");
+    expect(tpl.components[0].parameters[0].text).toBe("Linea 1 • Linea 2 • fin");
+  });
+
+  it("send recorta el parámetro de la plantilla al límite de la Cloud API", async () => {
+    fetch
+      .mockResolvedValueOnce(errJson(400, { code: 470, message: "window" }))
+      .mockResolvedValueOnce(okJson({ messages: [{ id: "wamid.tpl3" }] }));
+    const n = make({ template: "wdrivers_aviso" });
+    await n.send({ to: "573001112233", text: "A".repeat(2000) });
+
+    const tpl = JSON.parse(fetch.mock.calls[1][1].body).template;
+    expect(tpl.components[0].parameters[0].text.length).toBeLessThanOrEqual(900);
+  });
+
   it("send NO reintenta si no hay plantilla configurada", async () => {
     fetch.mockResolvedValueOnce(errJson(400, { code: 131047, message: "re-engagement" }));
     const n = make();

@@ -12,6 +12,24 @@ const GRAPH = "https://graph.facebook.com";
 // 470 / 131026 (fuera de ventana / no entregable).
 const NEEDS_TEMPLATE = new Set([131047, 470, 131026]);
 
+// Meta NO permite saltos de línea, tabs, retornos ni más de 4 espacios seguidos
+// en los valores de parámetro de una plantilla (la petición se rechaza con 400).
+// Aplanamos el texto a una sola línea y respetamos el límite de 1024 caracteres
+// del cuerpo de la plantilla (incluyendo variables).
+const MAX_PARAM = 900;
+const sanitizeParam = (s) =>
+  String(s || "")
+    .replace(/[\r\n\t]+/g, " • ")
+    .replace(/ {5,}/g, "    ")
+    .trim();
+const clipParam = (s) => (s.length > MAX_PARAM ? s.slice(0, MAX_PARAM - 1).trimEnd() + "…" : s);
+
+const buildBodyComponents = (text) => {
+  const body = clipParam(sanitizeParam(text));
+  if (!body) return undefined;
+  return [{ type: "body", parameters: [{ type: "text", text: body }] }];
+};
+
 export class WhatsAppNotifier {
   constructor({ token, phoneNumberId, apiVersion = "v21.0", template = "", templateLang = "es" } = {}) {
     this.token = token || "";
@@ -80,7 +98,9 @@ export class WhatsAppNotifier {
     } catch (err) {
       const code = (err && err.code) || 0;
       if (NEEDS_TEMPLATE.has(code) && (template || this.template)) {
-        return this.sendTemplate({ to, name: template, lang, components });
+        // La plantilla lleva el texto del reporte como variable {{1}}.
+        const comps = components || buildBodyComponents(text);
+        return this.sendTemplate({ to, name: template, lang, components: comps });
       }
       throw err;
     }
