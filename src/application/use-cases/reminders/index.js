@@ -180,7 +180,7 @@ export class GetRemindersUseCase {
       }
       t += `📋 Gestión del día: ${covered}/${total}${pending.length === 0 ? " ✅" : ` — faltan ${pending.length}`}\n`;
     } else {
-      t += `🌙 *W Drivers — Cierre ${dl}*\n\n`;
+      t += `🌙 *W Drivers — Última llamada ${dl}*\n\n`;
       t += `📋 Gestión del día: ${covered}/${total}${pending.length === 0 ? " ✅" : ` — faltan ${pending.length}`}\n`;
       if (pending.length > 0) {
         t += pending.slice(0, 8).map((i) => `⛔ ${i.plate}${i.driverName ? ` (${i.driverName})` : ""}`).join("\n");

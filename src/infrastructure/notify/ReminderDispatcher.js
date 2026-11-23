@@ -55,7 +55,7 @@ export class ReminderDispatcher {
 
   async dispatch({ date, moment, reminders = [], whatsappText = "", settings = {}, counts = {}, skipWhatsApp = false }) {
     const subject = moment === "evening"
-      ? `🌙 W Drivers — Cierre ${dmy(date)}`
+      ? `🌙 W Drivers — Última llamada ${dmy(date)}`
       : moment === "midday"
         ? `🕑 W Drivers — Avance del día ${dmy(date)}`
         : moment === "lateMorning"

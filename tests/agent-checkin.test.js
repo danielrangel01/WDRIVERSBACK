@@ -141,6 +141,14 @@ describe("📤 Fallback a plantilla fuera de la ventana de 24 h", () => {
     const fallback = deps.sendWhatsApp.execute.mock.calls.at(-1)[0];
     expect(fallback.kind).toBe("template");
   });
+
+  it("proactiveClosePreviousDay usa la agenda de AYER y envía el cierre", async () => {
+    const { agent, deps } = makeAgent();
+    const r = await agent.proactiveClosePreviousDay(FROM, "whatsapp", "2026-11-22");
+    expect(deps.getAgenda.execute).toHaveBeenCalledWith({ date: "2026-11-22" });
+    expect(r.text).toContain("Cierre del día");
+    expect(deps.sendWhatsApp.execute.mock.calls.at(-1)[0].kind).toBe("text");
+  });
 });
 
 describe("📋 Check-in paso a paso", () => {

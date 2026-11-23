@@ -126,9 +126,62 @@ describe("⏰ ReminderScheduler", () => {
     await vi.advanceTimersByTimeAsync(10);
     stop();
 
-    expect(recorded).toEqual(["2024-06-30:morning"]);
+    expect(recorded).toEqual(["2024-06-30:morning", "2024-06-30:morningClose"]);
     expect(dispatched).toHaveLength(1);
     expect(dispatched[0].moment).toBe("morning");
+  });
+
+  it("mañana: envía el cierre del día ANTERIOR como mensaje aparte", async () => {
+    vi.setSystemTime(new Date("2024-06-30T14:30:00Z")); // 09:30 en Bogota
+    const dispatch = vi.fn(async () => ({}));
+    const closePrev = vi.fn().mockResolvedValue({ text: "cierre" });
+
+    const stop = startReminderScheduler({
+      useCase: { execute: async ({ date, moment }) => ({ date, moment, reminders: [], whatsappText: "hi" }) },
+      dispatcher: { channels: { whatsapp: true }, dispatch },
+      settingsRepository: { get: async () => ({ remindersEnabled: true, morningHour: 9, eveningHour: 20, adminPhone: "573001112233" }) },
+      reminderLogRepository: { exists: async () => false, record: async () => {} },
+      agent: { proactiveClosePreviousDay: closePrev },
+      timeZone: "America/Bogota",
+      everyMs: 100000,
+      initialDelayMs: 1,
+      log: { log() {}, error() {} },
+    });
+
+    await vi.advanceTimersByTimeAsync(10);
+    stop();
+
+    expect(closePrev).toHaveBeenCalledTimes(1);
+    // Se pide la agenda del día ANTERIOR (30 → 29 de junio).
+    expect(closePrev.mock.calls[0][2]).toBe("2024-06-29");
+    // El cierre de ayer NO se manda por el dispatcher (correo/push).
+    expect(dispatch).toHaveBeenCalledTimes(1);
+    expect(dispatch.mock.calls[0][0].moment).toBe("morning");
+  });
+
+  it("tarde: NO cierra el día (ni check-in ni cierre del agente)", async () => {
+    vi.setSystemTime(new Date("2024-07-01T01:30:00Z")); // 20:30 del 30 en Bogota
+    const dispatch = vi.fn(async () => ({}));
+    const proactiveClose = vi.fn();
+
+    const stop = startReminderScheduler({
+      useCase: { execute: async ({ date, moment }) => ({ date, moment, reminders: [], whatsappText: "hi" }) },
+      dispatcher: { channels: { whatsapp: true }, dispatch },
+      settingsRepository: { get: async () => ({ remindersEnabled: true, morningHour: 8, eveningHour: 20, adminPhone: "573001112233" }) },
+      reminderLogRepository: { exists: async () => false, record: async () => {} },
+      agent: { proactiveClose },
+      timeZone: "America/Bogota",
+      everyMs: 100000,
+      initialDelayMs: 1,
+      log: { log() {}, error() {} },
+    });
+
+    await vi.advanceTimersByTimeAsync(10);
+    stop();
+
+    expect(dispatch).toHaveBeenCalledTimes(1);
+    expect(dispatch.mock.calls[0][0].moment).toBe("evening");
+    expect(proactiveClose).not.toHaveBeenCalled();
   });
 
   it("dispara la media mañana en la hora configurada (segundo recordatorio)", async () => {

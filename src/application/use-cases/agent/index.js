@@ -244,6 +244,23 @@ export class WhatsAppAgentUseCase {
   }
 
   /**
+   * Envía el cierre del día ANTERIOR (D-1) como mensaje aparte. Se usa
+   * proactivamente en la mañana del día D: los conductores pueden pagar a
+   * cualquier hora, así que cerrar el día D la misma noche interferiría con
+   * pagos tardíos → el cierre de D se gestiona en la mañana de D+1.
+   */
+  async proactiveClosePreviousDay(phone, channel = "whatsapp", date) {
+    const agenda = await this.getAgenda.execute(date ? { date } : {});
+    const out = { text: buildDayCloseReport(agenda) };
+    try {
+      await this.send(phone, out, channel);
+    } catch (_) {
+      await this.sendCheckinTemplate(phone, channel);
+    }
+    return out;
+  }
+
+  /**
    * Insistencia de media tarde: si el check-in del mediodía quedó SIN respuesta
    * (nadie avanzó la revisión) y aún hay carros pendientes, reenvía el aviso de
    * check-in (plantilla con botones en WhatsApp; mensaje con botones en

@@ -48,7 +48,7 @@ describe("🔔 Motor de Recordatorios", () => {
     expect(r.whatsappText).toContain("Aún estás a tiempo");
   });
 
-  it("tarde: cierre agresivo reclama por nombre cada carro sin gestionar", async () => {
+  it("tarde: última llamada reclama por nombre cada carro sin gestionar", async () => {
     const uc = build({ cars: [porCobrar()] });
     const r = await uc.execute({ date: TODAY, moment: "evening" });
 
@@ -58,7 +58,7 @@ describe("🔔 Motor de Recordatorios", () => {
     expect(un).toBeTruthy();
     expect(un.level).toBe("critical");
     expect(un.title).toContain("ABC123");
-    expect(r.whatsappText).toContain("Cierre");
+    expect(r.whatsappText).toContain("Última llamada");
     expect(r.whatsappText).toContain("ABC123");
   });
 
