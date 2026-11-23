@@ -233,6 +233,68 @@ describe("📋 Check-in paso a paso", () => {
   });
 });
 
+describe("🤔 Mensaje no entendido → menú de opciones (WhatsApp)", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("un saludo responde con el menú (3 botones en WhatsApp)", async () => {
+    const { agent, deps } = makeAgent();
+    const r = await agent.handleIncoming({ from: FROM, text: "hola" });
+    expect(r.reply).toContain("No entendí");
+    const call = deps.sendWhatsApp.execute.mock.calls.at(-1)[0];
+    expect(call.kind).toBe("buttons");
+    expect(call.buttons.map((b) => b.id)).toEqual(["CHECKIN", "STATUS", "PENDING"]);
+    expect(call.footer).toContain("ayuda");
+  });
+
+  it("una consulta normal NO lleva menú", async () => {
+    const { agent, deps } = makeAgent();
+    await agent.handleIncoming({ from: FROM, text: "estado" });
+    const call = deps.sendWhatsApp.execute.mock.calls.at(-1)[0];
+    expect(call.kind).toBe("text");
+    expect(call.buttons).toBeUndefined();
+  });
+
+  it("si los botones fallan en WhatsApp, reintenta como texto", async () => {
+    const { agent, deps } = makeAgent();
+    deps.sendWhatsApp.execute
+      .mockRejectedValueOnce(new Error("fuera de ventana"))
+      .mockResolvedValueOnce({ ok: true });
+    const r = await agent.handleIncoming({ from: FROM, text: "hola" });
+    expect(r.sent).toBe(true);
+    expect(deps.sendWhatsApp.execute.mock.calls.at(-1)[0].kind).toBe("text");
+  });
+});
+
+describe("🛡️ Blindaje del check-in (saltos y duplicados)", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("un doble toque del mismo botón no duplica el pago", async () => {
+    const { agent, deps } = makeAgent();
+    await agent.handleIncoming({ from: FROM, text: "revisar" });
+    await agent.handleIncoming({ from: FROM, action: `pay:${CAR_A}` });
+    await agent.handleIncoming({ from: FROM, action: `pay:${CAR_A}` });
+    expect(deps.addPayment.execute).toHaveBeenCalledTimes(1);
+  });
+
+  it("un texto no reconocido durante el check-in no avanza ni registra", async () => {
+    const { agent, deps, sessionRepo } = makeAgent();
+    await agent.handleIncoming({ from: FROM, text: "revisar" });
+    const r = await agent.handleIncoming({ from: FROM, text: "asdf" });
+    expect(deps.addPayment.execute).not.toHaveBeenCalled();
+    expect(sessionRepo.store[FROM].index).toBe(0);
+    expect(r.reply).toContain("No te entendí");
+    expect(r.reply).toContain("ABC123");
+  });
+
+  it("'sin novedad' por texto marca ok y avanza al siguiente", async () => {
+    const { agent, deps, sessionRepo } = makeAgent();
+    await agent.handleIncoming({ from: FROM, text: "revisar" });
+    await agent.handleIncoming({ from: FROM, text: "sin novedad" });
+    expect(deps.addPayment.execute).not.toHaveBeenCalled();
+    expect(sessionRepo.store[FROM].index).toBe(1);
+  });
+});
+
 describe("🔔 Insistencia de media tarde (nagCheckin)", () => {
   beforeEach(() => vi.clearAllMocks());
 
@@ -345,6 +407,17 @@ describe("🗂️ Cierres pendientes (opción del menú)", () => {
     const { agent } = makeClosuresAgent({ [TODAY]: agendaOn(TODAY, []) });
     const r = await agent.handleIncoming({ from: FROM, text: "cierres" });
     expect(r.reply).toContain("No hay cierres pendientes");
+  });
+
+  it("mientras se elige un cierre, un texto no numérico pide el número", async () => {
+    const { agent } = makeClosuresAgent({
+      [TODAY]: agendaOn(TODAY, []),
+      "2026-11-22": agendaOn("2026-11-22", [item(CAR_A, "ABC123", 90000)]),
+    });
+    await agent.handleIncoming({ from: FROM, text: "cierres" });
+    const r = await agent.handleIncoming({ from: FROM, text: "hola" });
+    expect(r.reply).toContain("número");
+    expect(r.reply).not.toContain("Revisión paso a paso");
   });
 });
 

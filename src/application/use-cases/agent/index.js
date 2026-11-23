@@ -22,17 +22,25 @@ const BUTTONS = [
   { verb: "ok", title: "Sin novedad" },
 ];
 
-// Botones de la plantilla de check-in (estáticos). Los usa el aviso proactivo
-// cuando el canal no permite botones dinámicos (WhatsApp fuera de 24 h) y
-// también Telegram (donde no hay ventana ni plantillas).
-const CHECKIN_BUTTONS = [
-  { id: "CHECKIN", title: "Revisar ahora" },
-  { id: "CLOSE", title: "Ver cierre" },
-  { id: "HELP", title: "Ayuda" },
+// Menú de opciones iniciales: se adjunta a los avisos del bot para que el
+// administrador vea qué puede hacer sin tener que aprenderse los comandos.
+// El id de cada botón coincide con una intención del parser (AgentCommand).
+// Telegram admite hasta 6 botones inline; WhatsApp solo 3 (y únicamente dentro
+// de la ventana de 24 h), por eso el menú se recorta por canal.
+const MENU_BUTTONS = [
+  { id: "CHECKIN", title: "📋 Revisar" },
+  { id: "STATUS", title: "📊 Estado" },
+  { id: "PENDING", title: "⏳ Pendientes" },
+  { id: "CLOSURES", title: "🗂️ Cierres" },
+  { id: "HELP", title: "❓ Ayuda" },
 ];
+const MENU_MAX = { whatsapp: 3, telegram: 6 };
+const MENU_FOOTER = "Escribe *ayuda* para el detalle de cada comando.";
 
 // Texto libre interpretado como respuesta durante el check-in.
 const PAY_WORDS = /\b(si|ya|listo|ok|pago|pagado|abono|consign|transfer|deposit)\b/;
+// Respuesta que significa "sin novedad" en el check-in (equivale al botón).
+const OK_WORDS = /\b(sin novedad|novedad|nada|ninguna|ninguno|normal|todo bien|limpio)\b/;
 
 // Normaliza la clave de sesión (dígitos WhatsApp; "tg:<id>" Telegram).
 const agentKey = (v) => String(v || "").trim().replace(/[^a-zA-Z0-9:_-]/g, "");
@@ -84,6 +92,12 @@ export class WhatsAppAgentUseCase {
     return channel === "telegram" ? `tg:${digits}` : digits;
   }
 
+  /** Botones del menú de opciones para el canal (Telegram 6, WhatsApp 3). */
+  menuButtons(channel = "whatsapp") {
+    const max = MENU_MAX[channel] || MENU_MAX.whatsapp;
+    return MENU_BUTTONS.slice(0, max).map((b) => ({ id: b.id, title: b.title }));
+  }
+
   /** Autoriza al remitente según el canal (teléfono admin o chat id admin). */
   isAuthorized(settings, from, channel) {
     if (!settings) return false;
@@ -116,6 +130,13 @@ export class WhatsAppAgentUseCase {
       out = await this.handleCommand(cmd, key, session);
     }
 
+    // El menú de opciones solo se adjunta donde aporta: las respuestas de
+    // "no entendí" se marcan con `menu` y aquí se les añaden los botones del
+    // canal. Nunca se pega a cada respuesta (estado, pendientes, cierre…).
+    if (out && out.menu && !(out.buttons && out.buttons.length)) {
+      out = { ...out, buttons: this.menuButtons(channel), footer: MENU_FOOTER };
+    }
+
     const reply = (out && out.text) || "";
     const canSend = channel === "telegram" ? this.sendTelegram : this.sendWhatsApp;
     let sent = false;
@@ -124,7 +145,19 @@ export class WhatsAppAgentUseCase {
         await this.send(from, out, channel);
         sent = true;
       } catch (_) {
-        sent = false;
+        // WhatsApp: si el mensaje con botones interactivos no pasó (p. ej. fuera
+        // de la ventana de 24 h), reintenta como texto para no dejar al usuario
+        // sin respuesta.
+        if (channel !== "telegram" && out && out.buttons && out.buttons.length) {
+          try {
+            await this.sendWhatsApp.execute({ kind: "text", to: from, text: out.text });
+            sent = true;
+          } catch (_2) {
+            sent = false;
+          }
+        } else {
+          sent = false;
+        }
       }
     }
     return { handled: true, intent, reply, sent, channel };
@@ -178,10 +211,11 @@ export class WhatsAppAgentUseCase {
         if (selecting) {
           const picked = await this.pickClosure(session, cmd);
           if (picked) return picked;
+          return { text: "🗂️ Responde con el *número* del día que quieres gestionar, o escribe *cierres* para ver la lista." };
         }
         if (active && cmd.refs.length === 0) return this.answerCurrent(session, cmd, sessionAgenda);
         const car = this.resolveCar(sessionAgenda, cmd.refs);
-        return { text: car ? this.carText(car) : this.helpText() };
+        return car ? { text: this.carText(car) } : this.notUnderstood();
       }
     }
   }
@@ -321,13 +355,26 @@ export class WhatsAppAgentUseCase {
   async proactiveClose(phone, channel = "whatsapp") {
     const agenda = await this.getAgenda.execute();
     if (this.sessions) await this.sessions.clear(this.sessionKey(channel, phone));
-    const out = { text: buildDayCloseReport(agenda) };
+    const out = this.closeNotice(agenda, channel);
     try {
       await this.send(phone, out, channel);
     } catch (_) {
       await this.sendCheckinTemplate(phone, channel);
     }
     return out;
+  }
+
+  /**
+   * Mensaje de cierre + menú de opciones. Telegram no tiene ventana de 24 h ni
+   * plantillas → siempre lleva botones inline. WhatsApp depende de la ventana:
+   * fuera de ella Meta rechaza los botones interactivos, así que se manda el
+   * cierre como texto (y si ni el texto pasa, el llamador cae a la plantilla).
+   */
+  closeNotice(agenda, channel = "whatsapp") {
+    const text = buildDayCloseReport(agenda);
+    return channel === "telegram"
+      ? { text, buttons: this.menuButtons("telegram"), footer: MENU_FOOTER }
+      : { text };
   }
 
   /**
@@ -338,7 +385,7 @@ export class WhatsAppAgentUseCase {
    */
   async proactiveClosePreviousDay(phone, channel = "whatsapp", date) {
     const agenda = await this.getAgenda.execute(date ? { date } : {});
-    const out = { text: buildDayCloseReport(agenda) };
+    const out = this.closeNotice(agenda, channel);
     try {
       await this.send(phone, out, channel);
     } catch (_) {
@@ -380,7 +427,8 @@ export class WhatsAppAgentUseCase {
         kind: "buttons",
         to: phone,
         text: `📋 *W Drivers* — Actualización de tu cuenta: hoy quedan *${n}* vehículo(s) con el pago pendiente de registrar.`,
-        buttons: CHECKIN_BUTTONS.map((b) => ({ id: b.id, title: b.title })),
+        buttons: this.menuButtons("telegram"),
+        footer: MENU_FOOTER,
       });
     }
     return this.sendWhatsApp.execute({
@@ -393,28 +441,28 @@ export class WhatsAppAgentUseCase {
     });
   }
 
-  /** Traduce el token de un botón (interactivo o de plantilla) a una acción. */
+  /** Traduce el token de un botón (interactivo, de menú o de plantilla) a una acción. */
   async handleAction(phone, action, session) {
-    if (/^(pay|off|ok):(.+)$/.test(String(action || ""))) {
-      return this.handleButton(phone, action, session);
+    const raw = String(action || "");
+    if (/^(pay|off|ok):(.+)$/.test(raw)) {
+      return this.handleButton(phone, raw, session);
     }
-    const flat = String(action || "").trim().toUpperCase().replace(/[\s_-]/g, "");
-    if (flat === "CHECKIN" || flat === "REVISAR" || flat === "REVISARAHORA" || flat === "INICIAR" || flat.includes("REVISAR")) {
-      return this.startCheckin(phone);
-    }
-    if (flat === "CLOSE" || flat === "CIERRE" || flat === "VERCIERRE" || flat.includes("CIERRE")) {
-      return { text: buildDayCloseReport(await this.getAgenda.execute()) };
-    }
-    if (flat === "HELP" || flat === "AYUDA" || flat.includes("AYUDA")) {
-      return { text: this.helpText() };
-    }
-    return this.handleCommand(parseCommand(action), phone, session);
+    // Aplana el texto del botón ("📋 Revisar" → "REVISAR") para enrutarlo por su
+    // intención. El orden importa: *cierres pendientes* antes que *cierre*.
+    const flat = raw.trim().toUpperCase().replace(/[\s_-]/g, "");
+    if (/REVISAR|CHECKIN|INICIAR/.test(flat)) return this.startCheckin(phone);
+    if (/CIERRES|CLOSURES/.test(flat)) return this.startClosures(phone, await this.getAgenda.execute());
+    if (/CIERRE|CLOSE/.test(flat)) return { text: buildDayCloseReport(await this.getAgenda.execute()) };
+    if (/ESTADO|STATUS|RESUMEN/.test(flat)) return { text: this.statusText(await this.getAgenda.execute()) };
+    if (/PENDIENTE|PENDING/.test(flat)) return { text: this.pendingText(await this.getAgenda.execute()) };
+    if (/AYUDA|HELP/.test(flat)) return { text: this.helpText() };
+    return this.handleCommand(parseCommand(raw), phone, session);
   }
 
   /** Aplica la acción recibida por botón y avanza al siguiente carro. */
   async handleButton(phone, action, session) {
     const m = /^(pay|off|ok):(.+)$/.exec(String(action || ""));
-    if (!m) return { text: this.helpText() };
+    if (!m) return this.notUnderstood();
     const verb = m[1];
     const carId = m[2];
 
@@ -426,7 +474,23 @@ export class WhatsAppAgentUseCase {
     // desde *cierres*). Así un botón de una revisión antigua afecta a SU día.
     const agenda = await this.agendaFor(session);
     const car = this.findCar(agenda, carId);
-    if (!car) return this.advance(session, agenda, "");
+    if (!car) {
+      // Botón de un carro que no está en la agenda de la sesión (p. ej. de otra
+      // revisión): no se avanza por error; se re-pregunta el carro actual.
+      const out = await this.askCurrent(session, agenda);
+      out.text = `ℹ️ Ese botón no aplica a esta revisión.\n\n${out.text}`;
+      return out;
+    }
+
+    // Anti-duplicados: si este carro ya se respondió igual en esta revisión
+    // (p. ej. un doble toque del botón), no se repite la acción → no duplica
+    // pagos ni alterna el día libre. Solo se re-pregunta el carro actual.
+    const repeated = (session.answers || []).some((a) => a.carId === carId && a.action === verb);
+    if (repeated) {
+      const out = await this.askCurrent(session, agenda);
+      out.text = `ℹ️ *${car.plate}*: esa respuesta ya quedó registrada.\n\n${out.text}`;
+      return out;
+    }
 
     let line;
     if (verb === "pay") line = await this.doPay(car, agenda.date);
@@ -451,10 +515,17 @@ export class WhatsAppAgentUseCase {
   async answerCurrent(session, cmd, agenda) {
     const carId = session.queue[session.index];
     if (!carId) return this.finishCheckin(session, "");
-    let verb = "ok";
+    let verb = "";
     if (cmd.intent === INTENT.OFFDAY) verb = "off";
     else if (cmd.intent === INTENT.PAYMENT || PAY_WORDS.test(cmd.raw)) verb = "pay";
-    void agenda;
+    else if (OK_WORDS.test(cmd.raw)) verb = "ok";
+    if (!verb) {
+      // Mensaje no reconocido: se re-pregunta el MISMO carro SIN avanzar, para
+      // no saltarse un carro por un texto que el bot no entendió.
+      const out = await this.askCurrent(session, agenda);
+      out.text = `🤔 No te entendí.\n\n${out.text}`;
+      return out;
+    }
     return this.handleButton(session.phone, `${verb}:${carId}`, session);
   }
 
@@ -531,6 +602,15 @@ export class WhatsAppAgentUseCase {
     return `📌 Marcador del día: *${s.coveredCount || 0}/${s.fleetTotal || 0}* carros`;
   }
 
+  /**
+   * Respuesta para un mensaje que el bot no entiende (saludo, texto suelto…):
+   * texto corto + el menú de opciones. Se marca con `menu` y el canal añade los
+   * botones en `handleIncoming` (Telegram 5, WhatsApp 3).
+   */
+  notUnderstood() {
+    return { menu: true, text: "🤔 No entendí ese mensaje. Estas son las cosas que puedo hacer 👇" };
+  }
+
   askCarText(action) {
     return [
       `🤔 ¿Para qué carro quieres ${action}?`,
@@ -581,18 +661,26 @@ export class WhatsAppAgentUseCase {
   helpText() {
     return [
       "🤖 *Asistente W Drivers*",
-      "Escríbeme así:",
-      "• revisar — revisión paso a paso, carro por carro",
-      "• cierre — resumen completo del día",
-      "• cierres — cierres pendientes (días con carros sin gestionar)",
-      "• ABC123 pagó 90000 — registra un pago",
-      "• 3 ya pagó — pago del carro #3 de la lista",
-      "• ABC123 taller — marca el carro libre hoy",
-      "• estado — resumen y predicción del día",
-      "• pendientes — lista numerada de lo que falta",
-      "• ABC123 — detalle de un carro",
+      "Toca los botones del mensaje o escríbeme. Esto hace cada comando:",
       "",
-      "Puedes usar la *placa* o el *número* de la lista de pendientes.",
+      "📋 *revisar* — revisión paso a paso, carro por carro. Te muestra cada pendiente con botones (Ya pagó / En taller / Sin novedad) y registra la respuesta.",
+      "Ejemplo: _revisar_",
+      "📊 *estado* — resumen del día: marcador (gestionados/total), lo que falta por cobrar y la probabilidad de cumplir la meta.",
+      "Ejemplo: _estado_",
+      "⏳ *pendientes* — lista numerada de los carros que aún faltan hoy.",
+      "Ejemplo: _pendientes_",
+      "🗂️ *cierres* — cierres pendientes: días recientes con carros sin gestionar. Eliges el día por su número y revisas ESA fecha.",
+      "Ejemplo: _cierres_ y luego _1_",
+      "🧾 *cierre* — reporte completo del día (marcador, totales y carros sin gestionar).",
+      "Ejemplo: _cierre_",
+      "💰 *pago* — registra un pago por placa o por el número de la lista de pendientes.",
+      "Ejemplos: _ABC123 pagó 90000_ · _3 ya pagó_",
+      "🛠️ *día libre* — marca un carro como libre (taller/descanso); ese día no paga.",
+      "Ejemplo: _ABC123 taller_",
+      "🚗 *detalle* — ficha de un carro: deuda, pagado hoy y estado.",
+      "Ejemplo: _ABC123_",
+      "",
+      "Puedes usar la *placa* o el *número* de la lista de *pendientes*.",
     ].join("\n");
   }
 }

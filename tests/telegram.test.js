@@ -192,8 +192,69 @@ describe("🤖 Agente por canal Telegram", () => {
     sessionRepo.save({ phone: `tg:${CHAT}`, date: "2026-11-23", queue: [CAR_A], index: 0, answers: [], status: "active" });
     const r = await agent.proactiveClose(CHAT, "telegram");
     expect(r.text).toContain("Cierre del día");
-    expect(deps.sendTelegram.execute.mock.calls.at(-1)[0].kind).toBe("text");
+    expect(deps.sendTelegram.execute.mock.calls.at(-1)[0].kind).toBe("buttons");
     expect(sessionRepo.clear).toHaveBeenCalledWith(`tg:${CHAT}`);
+  });
+});
+
+// ── Menú de opciones iniciales (botones) ───────────────────────────────────
+describe("🗂️ Menú de opciones en los avisos (Telegram)", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  const MENU_IDS = ["CHECKIN", "STATUS", "PENDING", "CLOSURES", "HELP"];
+
+  it("el aviso de check-in lleva el menú completo", async () => {
+    const { agent, deps } = makeTelegramAgent();
+    await agent.sendCheckinTemplate(CHAT, "telegram");
+    const call = deps.sendTelegram.execute.mock.calls.at(-1)[0];
+    expect(call.kind).toBe("buttons");
+    expect(call.buttons.map((b) => b.id)).toEqual(MENU_IDS);
+  });
+
+  it("el cierre del día anterior adjunta el menú (no en WhatsApp)", async () => {
+    const { agent, deps } = makeTelegramAgent();
+    const r = await agent.proactiveClosePreviousDay(CHAT, "telegram", "2026-11-22");
+    expect(deps.getAgenda.execute).toHaveBeenCalledWith({ date: "2026-11-22" });
+    expect(r.text).toContain("Cierre del día");
+    const call = deps.sendTelegram.execute.mock.calls.at(-1)[0];
+    expect(call.kind).toBe("buttons");
+    expect(call.buttons.map((b) => b.id)).toEqual(MENU_IDS);
+  });
+
+  it("WhatsApp no usa botones en el cierre (solo texto)", async () => {
+    const { agent, deps } = makeTelegramAgent();
+    await agent.proactiveClosePreviousDay(CHAT, "whatsapp", "2026-11-22");
+    expect(deps.sendWhatsApp.execute.mock.calls.at(-1)[0].kind).toBe("text");
+  });
+
+  it("cuando no se entiende (saludo) responde con el menú completo", async () => {
+    const { agent, deps } = makeTelegramAgent();
+    const r = await agent.handleIncoming({ from: CHAT, text: "hola", channel: "telegram" });
+    expect(r.reply).toContain("No entendí");
+    const call = deps.sendTelegram.execute.mock.calls.at(-1)[0];
+    expect(call.kind).toBe("buttons");
+    expect(call.buttons.map((b) => b.id)).toEqual(MENU_IDS);
+  });
+
+  it("una consulta normal NO lleva menú", async () => {
+    const { agent, deps } = makeTelegramAgent();
+    await agent.handleIncoming({ from: CHAT, text: "estado", channel: "telegram" });
+    const call = deps.sendTelegram.execute.mock.calls.at(-1)[0];
+    expect(call.kind).toBe("text");
+    expect(call.buttons).toBeUndefined();
+  });
+
+  it("cada botón del menú enruta a su acción", async () => {
+    const { agent } = makeTelegramAgent();
+    const status = await agent.handleIncoming({ from: CHAT, action: "STATUS", channel: "telegram" });
+    expect(status.reply).toContain("Estado del día");
+    const pending = await agent.handleIncoming({ from: CHAT, action: "PENDING", channel: "telegram" });
+    expect(pending.reply).toContain("Pendientes de hoy");
+    const help = await agent.handleIncoming({ from: CHAT, action: "HELP", channel: "telegram" });
+    expect(help.reply).toContain("Asistente W Drivers");
+    expect(help.reply).toContain("cierres");
+    const closures = await agent.handleIncoming({ from: CHAT, action: "CLOSURES", channel: "telegram" });
+    expect(closures.reply).toContain("Cierres pendientes");
   });
 });
 
