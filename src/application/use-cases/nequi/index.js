@@ -1,16 +1,30 @@
 import { PendingPayment } from "../../../domain/entities/index.js";
+import { formatCOP } from "../../../domain/services/AgentCommand.js";
 import { NotFoundError, ValidationError, ConflictError } from "../../../shared/errors.js";
 
 const validOid = (id) => typeof id === "string" && /^[0-9a-fA-F]{24}$/.test(id);
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const MAX_NOTE = 500;
 
+// dd/mm/aaaa a partir de "aaaa-mm-dd".
+const dmy = (iso) => {
+  const [y, m, d] = String(iso || "").split("-");
+  return d ? `${d}/${m}/${y}` : String(iso || "");
+};
+
 // Detecta pagos recibidos (Nequi) desde el buzón y los guarda como pendientes.
+// Al detectar pagos NUEVOS envía además una notificación por Telegram al admin
+// (mismo destino que el agente: Ajustes.telegramChatId o el respaldo del entorno).
 export class SyncNequiUseCase {
-  constructor({ pendingPaymentRepository, mailReader }) {
+  constructor({ pendingPaymentRepository, mailReader, sendTelegram, getSettings, telegramChatId, log = console } = {}) {
     this.pending = pendingPaymentRepository;
     this.mail = mailReader;
+    this.sendTelegram = sendTelegram;
+    this.getSettings = getSettings;
+    this.telegramChatId = telegramChatId || "";
+    this.log = log;
   }
+
   async execute() {
     const res = await this.mail.fetchPaymentCandidates();
     if (!res || !res.configured) {
@@ -35,8 +49,55 @@ export class SyncNequiUseCase {
       }
     }
 
-    const created = await this.pending.insertMany(valid);
+    const inserted = await this.pending.insertMany(valid);
+    const created = inserted.length;
+
+    // Solo se notifica cuando hay pagos realmente NUEVOS (no duplicados).
+    if (created > 0) await this.notifyNewPayments(inserted);
+
     return { ok: true, scanned: res.scanned, detected: res.candidates.length, created };
+  }
+
+  /** Destino del admin: Ajustes primero, con respaldo al chat id del entorno. */
+  async resolveChatId() {
+    try {
+      const settings = this.getSettings ? await this.getSettings.execute() : null;
+      const fromSettings = String((settings && settings.telegramChatId) || "").replace(/\D/g, "");
+      if (fromSettings) return fromSettings;
+    } catch {
+      // Ajustes no disponibles: se usa el respaldo del entorno.
+    }
+    return String(this.telegramChatId || "").replace(/\D/g, "");
+  }
+
+  /**
+   * Envía a Telegram el aviso de pagos Nequi recién detectados. Nunca lanza:
+   * un fallo de notificación no debe romper la sincronización de correos.
+   */
+  async notifyNewPayments(items) {
+    if (!this.sendTelegram || !this.sendTelegram.enabled) return;
+    try {
+      const to = await this.resolveChatId();
+      if (!to) return;
+
+      const MAX = 10;
+      const lines = items.slice(0, MAX).map(
+        (p) => `• ${formatCOP(p.amount)} — ${p.from || "Nequi"} (${dmy(p.detectedDate)})`
+      );
+      if (items.length > MAX) lines.push(`…y ${items.length - MAX} más.`);
+
+      const text = [
+        `🏦 *Nequi* — ${items.length} pago(s) nuevo(s) por conciliar`,
+        "",
+        ...lines,
+        "",
+        "_Ábrelo en la app: Pagos → Nequi para conciliarlos._",
+      ].join("\n");
+
+      await this.sendTelegram.execute({ kind: "text", to, text });
+    } catch (err) {
+      this.log.error("[Nequi] No se pudo notificar por Telegram:", err?.message || err);
+    }
   }
 }
 

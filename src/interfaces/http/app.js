@@ -142,6 +142,8 @@ function buildApiRoutes(controllers, authMiddleware) {
   api.post("/push/unsubscribe", controllers.unsubscribePush);
   api.get("/whatsapp/status", controllers.whatsappStatus);
   api.post("/whatsapp/send", controllers.sendWhatsApp);
+  // Envío por el canal activo (WhatsApp o Telegram).
+  api.post("/notify/send", controllers.sendNotification);
   // Disparo manual del agente (check-in carro por carro / cierre del día).
   api.post("/whatsapp/agent/checkin", controllers.agentCheckin);
   api.post("/whatsapp/agent/close", controllers.agentClose);

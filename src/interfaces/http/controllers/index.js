@@ -213,6 +213,12 @@ export function buildControllers(useCases, { notify = {} } = {}) {
       const result = await useCases.sendWhatsApp.execute(req.body || {});
       res.json(result);
     }),
+    // Envío por el canal de chat activo (WhatsApp o Telegram). La app móvil/Web
+    // lo usan sin conocer el canal; el backend enruta según Ajustes.
+    sendNotification: asyncHandler(async (req, res) => {
+      const result = await useCases.sendNotification.execute(req.body || {});
+      res.json(result);
+    }),
     // Disparo manual del agente: iniciar check-in o enviar el cierre del día.
     // Usa el canal de chat activo configurado en Ajustes (WhatsApp o Telegram).
     agentCheckin: asyncHandler(async (req, res) => {

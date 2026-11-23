@@ -286,18 +286,18 @@ export class MongoPendingPaymentRepository extends IPendingPaymentRepository {
     return d ? toPendingPayment(d) : null;
   }
   async insertMany(pending) {
-    if (!Array.isArray(pending) || pending.length === 0) return 0;
+    if (!Array.isArray(pending) || pending.length === 0) return [];
     const docs = pending.map((p) => ({
       amount: p.amount, detectedDate: p.detectedDate, source: p.source,
       from: p.from, subject: p.subject, snippet: p.snippet, messageId: p.messageId, status: p.status,
     }));
     try {
       const inserted = await PendingPaymentModel.insertMany(docs, { ordered: false });
-      return inserted.length;
+      return inserted.map(toPendingPayment);
     } catch (err) {
       // Duplicados por messageId (correo ya procesado) se ignoran sin romper la sincronización.
-      if (err && Array.isArray(err.insertedDocs)) return err.insertedDocs.length;
-      if (err && (err.code === 11000 || err.name === "MongoBulkWriteError")) return 0;
+      if (err && Array.isArray(err.insertedDocs)) return err.insertedDocs.map(toPendingPayment);
+      if (err && (err.code === 11000 || err.name === "MongoBulkWriteError")) return [];
       throw err;
     }
   }

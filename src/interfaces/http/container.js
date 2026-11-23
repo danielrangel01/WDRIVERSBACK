@@ -33,6 +33,7 @@ import { GetAccountStatementUseCase } from "../../application/use-cases/statemen
 import { GetRemindersUseCase } from "../../application/use-cases/reminders/index.js";
 import { SendWhatsAppUseCase } from "../../application/use-cases/whatsapp/index.js";
 import { SendTelegramUseCase } from "../../application/use-cases/telegram/index.js";
+import { SendNotificationUseCase } from "../../application/use-cases/notify/index.js";
 import { WhatsAppAgentUseCase } from "../../application/use-cases/agent/index.js";
 import {
   RegisterHandoverUseCase, CloseHandoverUseCase, UpdateHandoverUseCase,
@@ -109,6 +110,10 @@ export function buildContainer() {
     whatsappNotifier, statementUseCase: getAccountStatement, remindersUseCase: getReminders, settingsRepository,
   });
   const sendTelegram = new SendTelegramUseCase({ telegramNotifier });
+  const sendNotification = new SendNotificationUseCase({
+    sendWhatsApp, sendTelegram, getSettings, statementUseCase: getAccountStatement, remindersUseCase: getReminders,
+    telegramChatId: config.notifications.telegramAdminChatId,
+  });
 
   // Agente conversacional determinista (inbound por WhatsApp o Telegram).
   const whatsAppAgent = new WhatsAppAgentUseCase({
@@ -157,10 +162,14 @@ export function buildContainer() {
     getReminders,
     sendWhatsApp,
     sendTelegram,
+    sendNotification,
     whatsAppAgent,
     subscribePush: new SubscribePushUseCase({ pushSubscriptionRepository }),
     unsubscribePush: new UnsubscribePushUseCase({ pushSubscriptionRepository }),
-    syncNequi: new SyncNequiUseCase({ pendingPaymentRepository, mailReader }),
+    syncNequi: new SyncNequiUseCase({
+      pendingPaymentRepository, mailReader, sendTelegram, getSettings,
+      telegramChatId: config.notifications.telegramAdminChatId,
+    }),
     listPendingPayments: new ListPendingPaymentsUseCase({ pendingPaymentRepository }),
     approvePendingPayment: new ApprovePendingPaymentUseCase({ pendingPaymentRepository, addPaymentUseCase: addPayment }),
     dismissPendingPayment: new DismissPendingPaymentUseCase({ pendingPaymentRepository }),
