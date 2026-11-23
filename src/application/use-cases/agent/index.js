@@ -319,6 +319,12 @@ export class WhatsAppAgentUseCase {
     }
 
     const agenda = await this.getAgenda.execute();
+    // La sesión debe ser del día actual: un botón viejo (de ayer) no debe
+    // actuar sobre la agenda de hoy. Se descarta la sesión obsoleta.
+    if (session.date && session.date !== agenda.date) {
+      if (this.sessions) await this.sessions.clear(session.phone);
+      return { text: "ℹ️ Esa revisión es de otro día. Escribe *revisar* para iniciar la de hoy." };
+    }
     const car = this.findCar(agenda, carId);
     if (!car) return this.advance(session, agenda, "");
 
