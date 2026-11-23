@@ -4,7 +4,9 @@
 // Regla de Meta: solo se puede enviar texto libre dentro de la "ventana de
 // atención al cliente" de 24 h (el destinatario escribió primero). Fuera de ella
 // hay que usar una PLANTILLA aprobada. `send()` intenta texto y, si la API lo
-// rechaza por re-engagement, reintenta con la plantilla configurada.
+// rechaza por re-engagement, reintenta con la plantilla configurada usando los
+// `components` (variables) que aporte el llamador. Las plantillas UTILITY exigen
+// parámetros estructurados, así que sin `components` no se reintenta.
 
 const GRAPH = "https://graph.facebook.com";
 
@@ -12,23 +14,6 @@ const GRAPH = "https://graph.facebook.com";
 // 470 / 131026 (fuera de ventana / no entregable).
 const NEEDS_TEMPLATE = new Set([131047, 470, 131026]);
 
-// Meta NO permite saltos de línea, tabs, retornos ni más de 4 espacios seguidos
-// en los valores de parámetro de una plantilla (la petición se rechaza con 400).
-// Aplanamos el texto a una sola línea y respetamos el límite de 1024 caracteres
-// del cuerpo de la plantilla (incluyendo variables).
-const MAX_PARAM = 900;
-const sanitizeParam = (s) =>
-  String(s || "")
-    .replace(/[\r\n\t]+/g, " • ")
-    .replace(/ {5,}/g, "    ")
-    .trim();
-const clipParam = (s) => (s.length > MAX_PARAM ? s.slice(0, MAX_PARAM - 1).trimEnd() + "…" : s);
-
-const buildBodyComponents = (text) => {
-  const body = clipParam(sanitizeParam(text));
-  if (!body) return undefined;
-  return [{ type: "body", parameters: [{ type: "text", text: body }] }];
-};
 
 export class WhatsAppNotifier {
   constructor({ token, phoneNumberId, apiVersion = "v21.0", template = "", templateLang = "es" } = {}) {
@@ -91,16 +76,38 @@ export class WhatsAppNotifier {
     return this.post({ to: phone, type: "template", template });
   }
 
+  /**
+   * Mensaje interactivo con botones de respuesta rápida (máx. 3).
+   * Los botones solo se pueden usar DENTRO de la ventana de 24 h; fuera de ella
+   * Meta rechaza el envío (código 131047) y el llamador debe caer a plantilla.
+   */
+  async sendButtons({ to, text, buttons = [], footer = "" }) {
+    const phone = this.normalizePhone(to);
+    if (!this.enabled) return { ok: false, skipped: true, reason: "whatsapp_disabled" };
+    if (!phone) return { ok: false, skipped: true, reason: "no_recipient" };
+    const body = String(text || "").trim();
+    if (!body) return { ok: false, skipped: true, reason: "empty_message" };
+    const list = (buttons || [])
+      .filter((b) => b && b.id && b.title)
+      .slice(0, 3)
+      .map((b) => ({ type: "reply", reply: { id: String(b.id).slice(0, 256), title: String(b.title).slice(0, 20) } }));
+    if (list.length === 0) return this.sendText({ to: phone, text: body });
+    const interactive = { type: "button", body: { text: body }, action: { buttons: list } };
+    if (footer) interactive.footer = { text: String(footer).slice(0, 60) };
+    return this.post({ to: phone, type: "interactive", interactive });
+  }
+
   async send({ to, text, template, lang, components }) {
     if (!this.enabled) return { ok: false, skipped: true, reason: "whatsapp_disabled" };
     try {
       return await this.sendText({ to, text });
     } catch (err) {
       const code = (err && err.code) || 0;
-      if (NEEDS_TEMPLATE.has(code) && (template || this.template)) {
-        // La plantilla lleva el texto del reporte como variable {{1}}.
-        const comps = components || buildBodyComponents(text);
-        return this.sendTemplate({ to, name: template, lang, components: comps });
+      const name = template || this.template;
+      // Solo se reintenta con plantilla si el llamador aporta las variables:
+      // las plantillas UTILITY exigen parámetros estructurados.
+      if (NEEDS_TEMPLATE.has(code) && name && components) {
+        return this.sendTemplate({ to, name, lang, components });
       }
       throw err;
     }

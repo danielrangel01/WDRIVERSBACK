@@ -92,7 +92,7 @@ describe("📤 ReminderDispatcher", () => {
       pushNotifier: { enabled: false },
       pushSubscriptionRepository: { findAll: async () => [], removeByEndpoint: async () => 0 },
     });
-    expect(dispatcher.channels).toEqual({ email: false, push: false, whatsapp: false });
+    expect(dispatcher.channels).toEqual({ email: false, push: false, whatsapp: false, telegram: false });
     const res = await dispatcher.dispatch({ date: "2024-06-30", moment: "morning", reminders: [], whatsappText: "", settings: {} });
     expect(res).toEqual({});
   });
@@ -129,6 +129,52 @@ describe("⏰ ReminderScheduler", () => {
     expect(recorded).toEqual(["2024-06-30:morning"]);
     expect(dispatched).toHaveLength(1);
     expect(dispatched[0].moment).toBe("morning");
+  });
+
+  it("dispara la media mañana en la hora configurada (segundo recordatorio)", async () => {
+    vi.setSystemTime(new Date("2024-06-30T14:30:00Z")); // 09:30 en Bogota
+    const dispatched = [];
+
+    const stop = startReminderScheduler({
+      useCase: { execute: async ({ date, moment }) => ({ date, moment, reminders: [], whatsappText: "hi" }) },
+      dispatcher: { dispatch: async (d) => { dispatched.push(d); return {}; } },
+      settingsRepository: { get: async () => ({ remindersEnabled: true, morningHour: 7, lateMorningHour: 9, middayHour: 14, afternoonHour: 16, eveningHour: 20 }) },
+      reminderLogRepository: { exists: async () => false, record: async () => {} },
+      timeZone: "America/Bogota",
+      everyMs: 100000,
+      initialDelayMs: 1,
+      log: { log() {}, error() {} },
+    });
+
+    await vi.advanceTimersByTimeAsync(10);
+    stop();
+
+    expect(dispatched).toHaveLength(1);
+    expect(dispatched[0].moment).toBe("lateMorning");
+  });
+
+  it("insistencia de la tarde: llama a agent.nagCheckin sin enviar recordatorio general", async () => {
+    vi.setSystemTime(new Date("2024-06-30T21:05:00Z")); // 16:05 en Bogota
+    const dispatched = [];
+    const nag = vi.fn().mockResolvedValue(true);
+
+    const stop = startReminderScheduler({
+      useCase: { execute: async () => { throw new Error("no debe usarse en la insistencia"); } },
+      dispatcher: { channels: { whatsapp: true }, dispatch: async (d) => { dispatched.push(d); return {}; } },
+      settingsRepository: { get: async () => ({ remindersEnabled: true, morningHour: 8, lateMorningHour: 11, middayHour: 14, afternoonHour: 16, eveningHour: 20, adminPhone: "573001112233" }) },
+      reminderLogRepository: { exists: async () => false, record: async () => {} },
+      agent: { nagCheckin: nag },
+      timeZone: "America/Bogota",
+      everyMs: 100000,
+      initialDelayMs: 1,
+      log: { log() {}, error() {} },
+    });
+
+    await vi.advanceTimersByTimeAsync(10);
+    stop();
+
+    expect(dispatched).toHaveLength(0);
+    expect(nag).toHaveBeenCalledWith("573001112233", "whatsapp");
   });
 
   it("no reenvía si ya existe registro para ese día/momento (idempotencia)", async () => {

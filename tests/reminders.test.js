@@ -38,6 +38,16 @@ describe("🔔 Motor de Recordatorios", () => {
     expect(r.whatsappText).toContain("Buenos días");
   });
 
+  it("media mañana: incluye aviso de cobrar hoy y el texto de 'aún estás a tiempo'", async () => {
+    const uc = build({ cars: [porCobrar()] });
+    const r = await uc.execute({ date: TODAY, moment: "lateMorning" });
+
+    expect(r.moment).toBe("lateMorning");
+    expect(r.counts.collect).toBe(1);
+    expect(r.reminders.map((x) => x.kind)).toContain("collect");
+    expect(r.whatsappText).toContain("Aún estás a tiempo");
+  });
+
   it("tarde: cierre agresivo reclama por nombre cada carro sin gestionar", async () => {
     const uc = build({ cars: [porCobrar()] });
     const r = await uc.execute({ date: TODAY, moment: "evening" });

@@ -1,4 +1,30 @@
 import { asyncHandler } from "../middleware/errorHandler.js";
+import { config } from "../../../infrastructure/config/index.js";
+import { ValidationError } from "../../../shared/errors.js";
+
+// Canal de chat activo configurado en Ajustes (WhatsApp por defecto).
+async function resolveActiveChannel(useCases) {
+  const s = await useCases.getSettings.execute();
+  return s && s.notifyChannel === "telegram" ? "telegram" : "whatsapp";
+}
+
+// Devuelve el destino del admin (teléfono WhatsApp o chat id de Telegram)
+// según el canal, o falla con un 400 explicando qué configurar.
+async function resolveAdminTarget(useCases, channel) {
+  const s = await useCases.getSettings.execute();
+  if (channel === "telegram") {
+    const chatId = String((s && s.telegramChatId) || config.notifications.telegramAdminChatId || "").trim();
+    if (!chatId) {
+      throw new ValidationError("Configura el 'Chat ID de Telegram' en Ajustes para usar el bot");
+    }
+    return chatId;
+  }
+  const phone = (s && s.adminPhone) || "";
+  if (!phone) {
+    throw new ValidationError("Configura el 'Teléfono administrador' en Ajustes para usar el agente de WhatsApp");
+  }
+  return phone;
+}
 
 /**
  * Controllers: capa delgada que traduce HTTP ↔ casos de uso.
@@ -171,11 +197,76 @@ export function buildControllers(useCases, { notify = {} } = {}) {
 
     // ── WhatsApp (Cloud API / Meta) ───────────────────────────────────────
     whatsappStatus: asyncHandler(async (req, res) => {
-      res.json({ enabled: !!(notify.channels && notify.channels.whatsapp) });
+      const n = config.notifications;
+      res.json({
+        enabled: !!(notify.channels && notify.channels.whatsapp),
+        template: n.whatsappTemplate || "",
+        // Agente conversacional entrante: listo si hay token de verificación.
+        webhook: {
+          enabled: n.whatsappWebhookEnabled,
+          path: "/api/whatsapp/webhook",
+          signature: !!n.whatsappAppSecret,
+        },
+      });
     }),
     sendWhatsApp: asyncHandler(async (req, res) => {
       const result = await useCases.sendWhatsApp.execute(req.body || {});
       res.json(result);
+    }),
+    // Disparo manual del agente: iniciar check-in o enviar el cierre del día.
+    // Usa el canal de chat activo configurado en Ajustes (WhatsApp o Telegram).
+    agentCheckin: asyncHandler(async (req, res) => {
+      const channel = await resolveActiveChannel(useCases);
+      const target = await resolveAdminTarget(useCases, channel);
+      const out = await useCases.whatsAppAgent.proactiveCheckin(target, channel);
+      res.json({ ok: true, channel, to: target, preview: out.text });
+    }),
+    agentClose: asyncHandler(async (req, res) => {
+      const channel = await resolveActiveChannel(useCases);
+      const target = await resolveAdminTarget(useCases, channel);
+      const out = await useCases.whatsAppAgent.proactiveClose(target, channel);
+      res.json({ ok: true, channel, to: target, preview: out.text });
+    }),
+
+    // ── Telegram (Bot API / canal alternativo) ────────────────────────────
+    telegramStatus: asyncHandler(async (req, res) => {
+      const n = config.notifications;
+      const s = await useCases.getSettings.execute();
+      res.json({
+        enabled: !!(notify.channels && notify.channels.telegram),
+        channel: s && s.notifyChannel === "telegram" ? "telegram" : "whatsapp",
+        chatId: (s && s.telegramChatId) || "",
+        webhook: {
+          path: "/api/telegram/webhook",
+          // Telegram devuelve este secreto en el header al llamar al webhook.
+          secret: !!n.telegramWebhookSecret,
+        },
+      });
+    }),
+    // Registra el webhook de Telegram apuntando a este backend. Si no se pasa
+    // `url`, se deduce del request. Telegram no requiere ventana ni plantillas.
+    telegramSetup: asyncHandler(async (req, res) => {
+      const n = config.notifications;
+      if (!notify.telegramNotifier || !notify.telegramNotifier.enabled) {
+        throw new ValidationError("Telegram no está configurado (falta TELEGRAM_BOT_TOKEN)");
+      }
+      const url = (req.body && req.body.url)
+        || `${req.protocol}://${req.get("host")}/api/telegram/webhook`;
+      const result = await notify.telegramNotifier.setWebhook({
+        url,
+        secretToken: n.telegramWebhookSecret,
+      });
+      res.json({ ok: true, url, result });
+    }),
+    // Envía un mensaje de prueba al chat configurado (o al pasado en `to`).
+    telegramTest: asyncHandler(async (req, res) => {
+      const s = await useCases.getSettings.execute();
+      const to = String((req.body && req.body.to) || (s && s.telegramChatId) || config.notifications.telegramAdminChatId || "").trim();
+      if (!to) {
+        throw new ValidationError("Falta el 'Chat ID de Telegram' (configúralo en Ajustes o pásalo en 'to')");
+      }
+      const result = await useCases.sendTelegram.execute({ kind: "test", to });
+      res.json({ ok: true, to, result });
     }),
     resetData: asyncHandler(async (req, res) => {
       res.json(await useCases.resetData.execute());

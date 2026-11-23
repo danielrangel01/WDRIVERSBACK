@@ -7,6 +7,8 @@ import { config } from "../../infrastructure/config/index.js";
 import { buildContainer } from "./container.js";
 import { buildControllers } from "./controllers/index.js";
 import { buildRoutes } from "./routes/index.js";
+import { buildWhatsAppWebhook } from "./routes/whatsappWebhook.js";
+import { buildTelegramWebhook } from "./routes/telegramWebhook.js";
 import { makeAuthMiddleware } from "./middleware/auth.js";
 import { errorHandler } from "./middleware/errorHandler.js";
 
@@ -53,8 +55,25 @@ export function createApp() {
     })
   );
 
-  app.use(express.json({ limit: config.payloadLimit }));
+  app.use(express.json({
+    limit: config.payloadLimit,
+    // Guardamos el cuerpo crudo para validar la firma del webhook de WhatsApp.
+    verify: (req, _res, buf) => { if (buf && buf.length) req.rawBody = buf; },
+  }));
   app.use(express.urlencoded({ extended: false, limit: config.payloadLimit }));
+
+  const { useCases, tokenService, repositories, notify } = buildContainer();
+  app.locals.useCases = useCases;
+  app.locals.repositories = repositories;
+  app.locals.notify = notify;
+
+  // Webhook público de WhatsApp (Meta). Se monta ANTES de mongoSanitize: este
+  // reemplaza los puntos de las claves (hub.mode → hub_mode) y rompería la
+  // verificación del webhook. Tampoco lleva JWT (Meta no envía Bearer).
+  app.use("/api/whatsapp/webhook", buildWhatsAppWebhook({ useCases }));
+  // Webhook público de Telegram. Igual que el de WhatsApp: antes de mongoSanitize
+  // y sin JWT (Telegram no envía Bearer).
+  app.use("/api/telegram/webhook", buildTelegramWebhook({ useCases }));
 
   app.use(mongoSanitize({ allowDots: false, replaceWith: "_" }));
 
@@ -63,6 +82,9 @@ export function createApp() {
     max: config.rateLimitMax,
     standardHeaders: true,
     legacyHeaders: false,
+    // Los webhooks públicos los llaman Meta/Telegram desde muchas IPs: no se limitan.
+    skip: (req) => req.originalUrl.startsWith("/api/whatsapp/webhook")
+      || req.originalUrl.startsWith("/api/telegram/webhook"),
     message: { error: "Demasiadas solicitudes desde esta IP, intenta de nuevo en unos minutos" },
   });
   app.use("/api", generalLimiter);
@@ -82,10 +104,6 @@ export function createApp() {
   app.get("/api/health", (req, res) => res.json({ status: "ok", env: config.env }));
   app.get("/robots.txt", (req, res) => res.type("text/plain").send("User-agent: *\nDisallow: /\n"));
 
-  const { useCases, tokenService, repositories, notify } = buildContainer();
-  app.locals.useCases = useCases;
-  app.locals.repositories = repositories;
-  app.locals.notify = notify;
   const controllers = buildControllers(useCases, { notify });
   const authMiddleware = makeAuthMiddleware(tokenService);
 
@@ -124,6 +142,12 @@ function buildApiRoutes(controllers, authMiddleware) {
   api.post("/push/unsubscribe", controllers.unsubscribePush);
   api.get("/whatsapp/status", controllers.whatsappStatus);
   api.post("/whatsapp/send", controllers.sendWhatsApp);
+  // Disparo manual del agente (check-in carro por carro / cierre del día).
+  api.post("/whatsapp/agent/checkin", controllers.agentCheckin);
+  api.post("/whatsapp/agent/close", controllers.agentClose);
+  api.get("/telegram/status", controllers.telegramStatus);
+  api.post("/telegram/setup", controllers.telegramSetup);
+  api.post("/telegram/test", controllers.telegramTest);
   api.get("/cars", controllers.listCars);
   api.post("/cars", controllers.addCar);
   api.put("/cars/:id", controllers.updateCar);

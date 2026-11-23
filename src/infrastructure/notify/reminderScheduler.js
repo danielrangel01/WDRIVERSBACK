@@ -18,11 +18,38 @@ const localParts = (timeZone) => {
   }
 };
 
+// Dispara el check-in (mediodía), la insistencia (media tarde) o el cierre
+// (tarde) del agente por el canal de chat activo (WhatsApp o Telegram).
+// Devuelve true si se envió algo. Tolerante a fallos: fuera de la ventana de 24 h
+// Meta rechaza los botones y simplemente se registra el error (el recordatorio
+// con plantilla ya salió).
+async function runAgentMoment(agent, target, moment, log, channel = "whatsapp") {
+  if (!agent || !target) return false;
+  try {
+    if (moment === "midday" && typeof agent.proactiveCheckin === "function") {
+      await agent.proactiveCheckin(target, channel);
+      return true;
+    }
+    if (moment === "afternoon" && typeof agent.nagCheckin === "function") {
+      return (await agent.nagCheckin(target, channel)) === true;
+    }
+    if (moment === "evening" && typeof agent.proactiveClose === "function") {
+      await agent.proactiveClose(target, channel);
+      return true;
+    }
+  } catch (err) {
+    log.error("[Agent] Error en", moment, err && err.message ? err.message : err);
+  }
+  return false;
+}
+
 export function startReminderScheduler({
   useCase,
   dispatcher,
   settingsRepository,
   reminderLogRepository,
+  agent,
+  telegramChatId = "",
   timeZone = "America/Bogota",
   everyMs = 5 * 60 * 1000,
   log = console,
@@ -41,15 +68,43 @@ export function startReminderScheduler({
       const { date, hour } = localParts(timeZone);
       const slots = [];
       if (hour === settings.morningHour) slots.push("morning");
+      if (settings.lateMorningHour !== undefined && hour === settings.lateMorningHour) slots.push("lateMorning");
+      if (settings.middayHour !== undefined && hour === settings.middayHour) slots.push("midday");
+      if (settings.afternoonHour !== undefined && hour === settings.afternoonHour) slots.push("afternoon");
       if (hour === settings.eveningHour) slots.push("evening");
+
+      const channelsEnabled = (dispatcher.channels) || {};
+      // Canal de chat activo: WhatsApp o Telegram (uno a la vez).
+      const channel = dispatcher.activeChatChannel
+        ? dispatcher.activeChatChannel(settings)
+        : (settings.notifyChannel === "telegram" ? "telegram" : "whatsapp");
+      const target = channel === "telegram"
+        ? String(settings.telegramChatId || telegramChatId || "").trim()
+        : settings.adminPhone;
 
       for (const moment of slots) {
         const key = `${date}:${moment}`;
         if (reminderLogRepository && (await reminderLogRepository.exists(key))) continue;
+
+        // Insistencia de media tarde: no hay recordatorio general (ni correo ni
+        // push); solo se re-avisa por el canal de chat si el check-in quedó a medias.
+        if (moment === "afternoon") {
+          const nagged = await runAgentMoment(agent, target, moment, log, channel);
+          if (reminderLogRepository) await reminderLogRepository.record(key, { date, moment, channels: { [channel]: nagged } });
+          log.log(`[Reminders] ${moment} ${date} insistencia →`, JSON.stringify({ [channel]: nagged }));
+          continue;
+        }
+
         const data = await useCase.execute({ date, moment });
-        const channels = await dispatcher.dispatch({ ...data, settings });
+        // En mediodía/tarde el agente se encarga del canal de chat (check-in/cierre),
+        // así que el dispatcher solo envía correo y push para no duplicar.
+        const agentHandlesChat = !!agent && !!channelsEnabled[channel]
+          && (moment === "midday" || moment === "evening");
+        const channels = await dispatcher.dispatch({ ...data, settings, skipWhatsApp: agentHandlesChat });
         if (reminderLogRepository) await reminderLogRepository.record(key, { date, moment, channels });
         log.log(`[Reminders] ${moment} ${date} enviado →`, JSON.stringify(channels));
+        // Check-in proactivo (mediodía) y cierre del día (tarde).
+        if (agentHandlesChat) await runAgentMoment(agent, target, moment, log, channel);
       }
     } catch (err) {
       log.error("[Reminders] Error:", err && err.message ? err.message : err);

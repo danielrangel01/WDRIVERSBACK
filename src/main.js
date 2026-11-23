@@ -47,6 +47,8 @@ async function main() {
       dispatcher: app.locals.notify.reminderDispatcher,
       settingsRepository: app.locals.repositories.settingsRepository,
       reminderLogRepository: app.locals.repositories.reminderLogRepository,
+      agent: app.locals.useCases.whatsAppAgent,
+      telegramChatId: config.notifications.telegramAdminChatId,
       timeZone: config.notifications.timezone,
       everyMs: config.notifications.checkEveryMs,
     });

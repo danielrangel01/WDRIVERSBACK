@@ -1,5 +1,6 @@
 import { computeMetrics } from "../../../domain/services/MetricsService.js";
 import { handoverForDate } from "../../../domain/services/DriverAttribution.js";
+import { buildRevenueCurve, computeDailyForecast, localDate } from "../../../domain/services/DailyForecast.js";
 
 const DEFAULT_TODAY = () => new Date().toISOString().slice(0, 10);
 const safeNum = (v) => {
@@ -20,7 +21,7 @@ const sum = (arr, key) => arr.reduce((s, i) => s + safeNum(i[key]), 0);
  *   - Pagos Nequi detectados por correo pendientes de conciliar.
  */
 export class GetAgendaUseCase {
-  constructor({ carRepository, paymentRepository, offDayRepository, refinanceRepository, documentRepository, pendingPaymentRepository, handoverRepository }) {
+  constructor({ carRepository, paymentRepository, offDayRepository, refinanceRepository, documentRepository, pendingPaymentRepository, handoverRepository, timeZone = "America/Bogota", now = () => new Date() }) {
     this.cars = carRepository;
     this.payments = paymentRepository;
     this.offDays = offDayRepository;
@@ -28,6 +29,8 @@ export class GetAgendaUseCase {
     this.documents = documentRepository;
     this.pendingPayments = pendingPaymentRepository;
     this.handovers = handoverRepository;
+    this.timeZone = timeZone;
+    this.now = now;
   }
 
   async execute({ date } = {}) {
@@ -123,6 +126,25 @@ export class GetAgendaUseCase {
     const coveredCount = checklist.filter((c) => c.covered).length;
     const pendingCars = checklist.filter((c) => !c.covered);
 
+    // Predicción de recaudo del día (solo tiene sentido para el día en curso).
+    const now = this.now();
+    const isToday = today === localDate(now, this.timeZone);
+    let forecast = null;
+    if (isToday) {
+      const target = checklist.reduce(
+        (s, it) => s + (it.offToday ? 0 : (it.dailyTotal > 0 ? it.dailyTotal : it.rate) || 0),
+        0
+      );
+      const collected = checklist.reduce((s, it) => s + safeNum(it.paidToday), 0);
+      const curve = buildRevenueCurve(payments, { timeZone: this.timeZone, now });
+      forecast = {
+        date: today,
+        ...computeDailyForecast({
+          target, collected, pendingCars: pendingCars.length, at: now, timeZone: this.timeZone, curve,
+        }),
+      };
+    }
+
     const refinancesActive = refinances
       .filter((r) => r.active && safeNum(r.remaining) > 0.001)
       .map((r) => {
@@ -195,11 +217,17 @@ export class GetAgendaUseCase {
       pendingCarsCount: pendingCars.length,
       carsWithoutDriverCount: checklist.filter((c) => !c.handoverId).length,
       allCovered: checklist.length > 0 && pendingCars.length === 0,
+      // Predicción de recaudo del día (null si se consulta una fecha distinta a hoy).
+      forecastTarget: forecast ? forecast.target : 0,
+      forecastCollected: forecast ? forecast.collected : 0,
+      forecastProbability: forecast ? forecast.probability : 0,
+      forecastStatus: forecast ? forecast.status : "unavailable",
     };
 
     return {
       date: today,
       summary,
+      forecast,
       collectToday,
       overdue,
       upToDate,

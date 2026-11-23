@@ -175,8 +175,11 @@ describe("🔒 Entidades: VehicleDocument / OffDay / Settings", () => {
   });
 
   it("Settings ajusta horas fuera de rango a fallback", () => {
-    const s = new Settings({ morningHour: -5, eveningHour: 99 });
+    const s = new Settings({ morningHour: -5, lateMorningHour: 99, middayHour: 30, afternoonHour: -1, eveningHour: 99 });
     expect(s.morningHour).toBe(8);
+    expect(s.lateMorningHour).toBe(11);
+    expect(s.middayHour).toBe(14);
+    expect(s.afternoonHour).toBe(16);
     expect(s.eveningHour).toBe(20);
   });
 

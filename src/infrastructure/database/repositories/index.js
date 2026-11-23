@@ -2,6 +2,7 @@ import {
   IUserRepository, ICarRepository, IPaymentRepository,
   IExpenseRepository, IDocumentRepository, IOffDayRepository, ISettingsRepository, IRefinanceRepository,
   IPendingPaymentRepository, IPushSubscriptionRepository, IReminderLogRepository, IHandoverRepository,
+  IAgentSessionRepository,
 } from "../../../domain/repositories/index.js";
 import { User, Payment, Expense, VehicleDocument, OffDay, Settings, PendingPayment } from "../../../domain/entities/index.js";
 import { Refinance } from "../../../domain/entities/Refinance.js";
@@ -9,7 +10,7 @@ import { Car } from "../../../domain/entities/Car.js";
 import { Handover } from "../../../domain/entities/Handover.js";
 import {
   UserModel, CarModel, PaymentModel, ExpenseModel, DocumentModel, OffDayModel, SettingsModel, RefinanceModel,
-  PendingPaymentModel, PushSubscriptionModel, ReminderLogModel, HandoverModel,
+  PendingPaymentModel, PushSubscriptionModel, ReminderLogModel, HandoverModel, AgentSessionModel,
 } from "../models/index.js";
 
 const id = (doc) => doc._id.toString();
@@ -200,7 +201,10 @@ export class MongoSettingsRepository extends ISettingsRepository {
     if (!d) d = await SettingsModel.create({ key: "global" });
     return new Settings({
       adminPhone: d.adminPhone, adminEmail: d.adminEmail,
-      remindersEnabled: d.remindersEnabled, morningHour: d.morningHour, eveningHour: d.eveningHour,
+      remindersEnabled: d.remindersEnabled, morningHour: d.morningHour,
+      lateMorningHour: d.lateMorningHour, middayHour: d.middayHour,
+      afternoonHour: d.afternoonHour, eveningHour: d.eveningHour,
+      notifyChannel: d.notifyChannel, telegramChatId: d.telegramChatId,
     });
   }
   async update(settings) {
@@ -208,13 +212,19 @@ export class MongoSettingsRepository extends ISettingsRepository {
       { key: "global" },
       {
         key: "global", adminPhone: settings.adminPhone, adminEmail: settings.adminEmail,
-        remindersEnabled: settings.remindersEnabled, morningHour: settings.morningHour, eveningHour: settings.eveningHour,
+        remindersEnabled: settings.remindersEnabled, morningHour: settings.morningHour,
+        lateMorningHour: settings.lateMorningHour, middayHour: settings.middayHour,
+        afternoonHour: settings.afternoonHour, eveningHour: settings.eveningHour,
+        notifyChannel: settings.notifyChannel, telegramChatId: settings.telegramChatId,
       },
       { upsert: true, new: true }
     );
     return new Settings({
       adminPhone: d.adminPhone, adminEmail: d.adminEmail,
-      remindersEnabled: d.remindersEnabled, morningHour: d.morningHour, eveningHour: d.eveningHour,
+      remindersEnabled: d.remindersEnabled, morningHour: d.morningHour,
+      lateMorningHour: d.lateMorningHour, middayHour: d.middayHour,
+      afternoonHour: d.afternoonHour, eveningHour: d.eveningHour,
+      notifyChannel: d.notifyChannel, telegramChatId: d.telegramChatId,
     });
   }
 }
@@ -359,6 +369,54 @@ export class MongoReminderLogRepository extends IReminderLogRepository {
       throw err;
     }
     return { key };
+  }
+}
+
+// ── AgentSession (estado del check-in paso a paso del asistente) ──────────────
+// La clave "phone" identifica la conversación: solo dígitos para WhatsApp y
+// "tg:<chatId>" para Telegram (así no colisionan entre canales).
+const agentKey = (v) => String(v || "").trim().replace(/[^a-zA-Z0-9:_-]/g, "");
+
+export class MongoAgentSessionRepository extends IAgentSessionRepository {
+  async get(phone) {
+    const key = agentKey(phone);
+    if (!key) return null;
+    const d = await AgentSessionModel.findOne({ phone: key });
+    if (!d) return null;
+    return {
+      phone: d.phone,
+      date: d.date || "",
+      queue: d.queue || [],
+      index: d.index || 0,
+      answers: (d.answers || []).map((a) => ({ carId: a.carId, action: a.action, at: a.at })),
+      status: d.status || "active",
+    };
+  }
+  async save(session) {
+    const key = agentKey(session && session.phone);
+    if (!key) return null;
+    await AgentSessionModel.findOneAndUpdate(
+      { phone: key },
+      {
+        phone: key,
+        date: (session && session.date) || "",
+        queue: (session && session.queue) || [],
+        index: (session && session.index) || 0,
+        answers: (session && session.answers) || [],
+        status: (session && session.status) || "active",
+      },
+      { upsert: true, new: true }
+    );
+    return { ...session, phone: key };
+  }
+  async clear(phone) {
+    const key = agentKey(phone);
+    if (!key) return null;
+    await AgentSessionModel.deleteOne({ phone: key });
+    return { ok: true };
+  }
+  async deleteAll() {
+    await AgentSessionModel.deleteMany({});
   }
 }
 

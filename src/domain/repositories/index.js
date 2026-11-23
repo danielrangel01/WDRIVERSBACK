@@ -89,6 +89,13 @@ export class IReminderLogRepository {
   async record(_key, _payload = {}) { throw new Error("No implementado"); }
 }
 
+export class IAgentSessionRepository {
+  async get(_phone) { throw new Error("No implementado"); }
+  async save(_session) { throw new Error("No implementado"); }
+  async clear(_phone) { throw new Error("No implementado"); }
+  async deleteAll() { throw new Error("No implementado"); }
+}
+
 export class IHandoverRepository {
   async findAll() { throw new Error("No implementado"); }
   async findByCar(_carId) { throw new Error("No implementado"); }

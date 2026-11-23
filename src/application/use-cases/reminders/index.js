@@ -1,7 +1,7 @@
 const cop = (n) =>
   new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", maximumFractionDigits: 0 }).format(Number(n) || 0);
 
-const MOMENTS = ["morning", "evening"];
+const MOMENTS = ["morning", "lateMorning", "midday", "evening"];
 
 /**
  * Motor de Recordatorios.
@@ -61,7 +61,7 @@ export class GetRemindersUseCase {
           carId: i.carId,
         });
       });
-    } else if (m === "morning" && s.collectTodayCount > 0) {
+    } else if ((m === "morning" || m === "lateMorning") && s.collectTodayCount > 0) {
       add({
         id: "collect", kind: "collect", level: "warn", icon: "🎯",
         title: `Cobrar hoy a ${s.collectTodayCount} carro(s)`,
@@ -99,20 +99,48 @@ export class GetRemindersUseCase {
       });
     }
 
+    // Inteligencia operativa: predicción de recaudo del día (anticipar, no reaccionar).
+    const f = agenda.forecast;
+    if (f) {
+      const level =
+        f.status === "closed" || f.status === "ahead" ? "ok"
+          : f.status === "on_track" ? "info"
+            : f.status === "behind" ? "warn"
+              : f.status === "critical" ? "critical" : "info";
+      const icon = f.status === "closed" ? "🏆" : f.status === "critical" ? "🔴" : f.status === "behind" ? "🟡" : "🟢";
+      add({
+        id: "forecast", kind: "forecast", level, icon,
+        title: f.status === "closed"
+          ? `Meta del día cumplida (${cop(f.collected)})`
+          : `${f.probability}% de probabilidad de cerrar la meta`,
+        body: f.status === "early"
+          ? `Aún es temprano (${f.hourLabel}). Esperas ${cop(f.target)} hoy; llevas ${cop(f.collected)}.`
+          : `Llevas ${cop(f.collected)} de ${cop(f.target)} · faltan ${f.pendingCars} carro(s).${
+            f.status === "behind" || f.status === "critical" ? " Toca apretar el cobro." : ""
+          }`,
+      });
+    }
+
     if (reminders.length === 0) {
       add({ id: "ok", kind: "ok", level: "ok", icon: "✅", title: "Todo al día", body: "No hay pendientes urgentes." });
     }
 
     const counts = {
       collect: s.collectTodayCount,
+      collectAmount: s.collectTodayAmount,
       overdue: s.overdueCount,
       unregistered: m === "evening" ? unregistered.length : 0,
       refinances: s.refinanceCount,
       docs: s.docsAlertCount,
       nequi: s.nequiPendingCount,
+      fleetDebt: s.fleetDebt,
       fleetTotal: total,
       covered,
       pending: pending.length,
+      forecastProbability: f ? f.probability : 0,
+      forecastStatus: f ? f.status : "unavailable",
+      forecastTarget: f ? f.target : 0,
+      forecastCollected: f ? f.collected : 0,
     };
 
     return {
@@ -132,11 +160,25 @@ export class GetRemindersUseCase {
     const total = s.fleetTotal || 0;
     const covered = s.coveredCount || 0;
     const pending = agenda.pendingCars || [];
+    const f = agenda.forecast;
     let t = "";
     if (m === "morning") {
       t += `🌅 *W Drivers — Buenos días ${dl}*\n\n`;
       t += `📋 Gestión del día: ${covered}/${total}\n`;
       t += `🎯 Cobrar hoy: ${s.collectTodayCount} carro(s) — ${cop(s.collectTodayAmount)}\n`;
+      if (f) t += `📈 Meta estimada del día: ${cop(f.target)}\n`;
+    } else if (m === "lateMorning") {
+      t += `⏰ *W Drivers — Aún estás a tiempo ${dl}*\n\n`;
+      t += `📋 Gestión del día: ${covered}/${total}${pending.length === 0 ? " ✅" : ` — faltan ${pending.length}`}\n`;
+      t += `🎯 Cobrar hoy: ${s.collectTodayCount} carro(s) — ${cop(s.collectTodayAmount)}\n`;
+      if (f) t += `📈 Probabilidad de cerrar la meta: ${f.probability}%\n`;
+    } else if (m === "midday") {
+      t += `🕑 *W Drivers — Avance del día ${dl}*\n\n`;
+      if (f) {
+        t += `📈 Probabilidad de cerrar la meta: ${f.probability}%\n`;
+        t += `💰 Llevas ${cop(f.collected)} de ${cop(f.target)}\n`;
+      }
+      t += `📋 Gestión del día: ${covered}/${total}${pending.length === 0 ? " ✅" : ` — faltan ${pending.length}`}\n`;
     } else {
       t += `🌙 *W Drivers — Cierre ${dl}*\n\n`;
       t += `📋 Gestión del día: ${covered}/${total}${pending.length === 0 ? " ✅" : ` — faltan ${pending.length}`}\n`;

@@ -258,9 +258,28 @@ export const config = {
     // Plantilla aprobada (obligatoria para escribir fuera de la ventana de 24 h).
     whatsappTemplate: process.env.WHATSAPP_TEMPLATE || "",
     whatsappTemplateLang: process.env.WHATSAPP_TEMPLATE_LANG || "es",
+    // Plantilla UTILITY con botones para iniciar la revisión paso a paso.
+    whatsappCheckinTemplate: process.env.WHATSAPP_CHECKIN_TEMPLATE || "wdrivers_checkin_util",
+    // Webhook entrante (agente conversacional). El verify token se define al
+    // registrar el webhook en Meta; el app secret valida la firma X-Hub-Signature-256.
+    whatsappVerifyToken: process.env.WHATSAPP_VERIFY_TOKEN || "",
+    whatsappAppSecret: process.env.WHATSAPP_APP_SECRET || "",
+    get whatsappWebhookEnabled() {
+      return !!(process.env.WHATSAPP_VERIFY_TOKEN && this.whatsappEnabled);
+    },
+    // Telegram Bot API (canal alternativo). Se activa solo si hay token del bot.
+    // Ventajas: sin ventana de 24 h, sin plantillas y botones inline persistentes.
+    get telegramEnabled() {
+      return !!process.env.TELEGRAM_BOT_TOKEN;
+    },
+    telegramBotToken: process.env.TELEGRAM_BOT_TOKEN || "",
+    // Secreto opcional que Telegram devuelve en el header X-Telegram-Bot-Api-Secret-Token.
+    telegramWebhookSecret: process.env.TELEGRAM_WEBHOOK_SECRET || "",
+    // Chat id del admin (respaldo si no se configuró en Ajustes).
+    telegramAdminChatId: process.env.TELEGRAM_ADMIN_CHAT_ID || "",
     // Zona horaria para el cálculo de mañana/tarde (Colombia por defecto).
     timezone: process.env.REMINDER_TZ || "America/Bogota",
     checkEveryMs: Number(process.env.REMINDER_CHECK_EVERY_MS || 5 * 60 * 1000),
-    get enabled() { return this.emailEnabled || this.pushEnabled || this.whatsappEnabled; },
+    get enabled() { return this.emailEnabled || this.pushEnabled || this.whatsappEnabled || this.telegramEnabled; },
   },
 };

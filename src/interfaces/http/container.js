@@ -4,7 +4,7 @@ import {
   MongoUserRepository, MongoCarRepository, MongoPaymentRepository,
   MongoExpenseRepository, MongoDocumentRepository, MongoOffDayRepository, MongoSettingsRepository, MongoRefinanceRepository,
   MongoPendingPaymentRepository, MongoPushSubscriptionRepository, MongoReminderLogRepository,
-  MongoHandoverRepository,
+  MongoHandoverRepository, MongoAgentSessionRepository,
 } from "../../infrastructure/database/repositories/index.js";
 
 import { BcryptHasher } from "../../infrastructure/security/BcryptHasher.js";
@@ -13,6 +13,7 @@ import { NequiMailReader } from "../../infrastructure/mail/NequiMailReader.js";
 import { EmailNotifier } from "../../infrastructure/notify/EmailNotifier.js";
 import { PushNotifier } from "../../infrastructure/notify/PushNotifier.js";
 import { WhatsAppNotifier } from "../../infrastructure/notify/WhatsAppNotifier.js";
+import { TelegramNotifier } from "../../infrastructure/notify/TelegramNotifier.js";
 import { ReminderDispatcher } from "../../infrastructure/notify/ReminderDispatcher.js";
 
 import { LoginUseCase, ChangeCredentialsUseCase } from "../../application/use-cases/auth/index.js";
@@ -31,6 +32,8 @@ import { GetCollectionsUseCase } from "../../application/use-cases/collections/i
 import { GetAccountStatementUseCase } from "../../application/use-cases/statement/index.js";
 import { GetRemindersUseCase } from "../../application/use-cases/reminders/index.js";
 import { SendWhatsAppUseCase } from "../../application/use-cases/whatsapp/index.js";
+import { SendTelegramUseCase } from "../../application/use-cases/telegram/index.js";
+import { WhatsAppAgentUseCase } from "../../application/use-cases/agent/index.js";
 import {
   RegisterHandoverUseCase, CloseHandoverUseCase, UpdateHandoverUseCase,
   ListHandoversUseCase, DeleteHandoverUseCase,
@@ -54,6 +57,7 @@ export function buildContainer() {
   const pushSubscriptionRepository = new MongoPushSubscriptionRepository();
   const reminderLogRepository = new MongoReminderLogRepository();
   const handoverRepository = new MongoHandoverRepository();
+  const agentSessionRepository = new MongoAgentSessionRepository();
 
   const passwordHasher = new BcryptHasher();
   const tokenService = new JwtTokenService(config.jwtSecret, config.jwtExpiresIn);
@@ -80,15 +84,20 @@ export function buildContainer() {
     template: config.notifications.whatsappTemplate,
     templateLang: config.notifications.whatsappTemplateLang,
   });
+  const telegramNotifier = new TelegramNotifier({
+    token: config.notifications.telegramBotToken,
+  });
   const reminderDispatcher = new ReminderDispatcher({
-    emailNotifier, pushNotifier, whatsappNotifier, pushSubscriptionRepository,
+    emailNotifier, pushNotifier, whatsappNotifier, telegramNotifier, pushSubscriptionRepository,
   });
 
   const addPayment = new AddPaymentUseCase({ paymentRepository, carRepository });
+  const toggleOffDay = new ToggleOffDayUseCase({ offDayRepository, carRepository });
+  const getSettings = new GetSettingsUseCase({ settingsRepository });
 
   const getAgenda = new GetAgendaUseCase({
     carRepository, paymentRepository, offDayRepository, refinanceRepository, documentRepository, pendingPaymentRepository,
-    handoverRepository,
+    handoverRepository, timeZone: config.notifications.timezone,
   });
 
   const getReminders = new GetRemindersUseCase({ agendaUseCase: getAgenda, settingsRepository });
@@ -97,6 +106,14 @@ export function buildContainer() {
   });
   const sendWhatsApp = new SendWhatsAppUseCase({
     whatsappNotifier, statementUseCase: getAccountStatement, remindersUseCase: getReminders, settingsRepository,
+  });
+  const sendTelegram = new SendTelegramUseCase({ telegramNotifier });
+
+  // Agente conversacional determinista (inbound por WhatsApp o Telegram).
+  const whatsAppAgent = new WhatsAppAgentUseCase({
+    getAgenda, getSettings, addPayment, toggleOffDay, sendWhatsApp, sendTelegram, agentSessionRepository,
+    checkinTemplate: config.notifications.whatsappCheckinTemplate,
+    telegramChatId: config.notifications.telegramAdminChatId,
   });
 
   const useCases = {
@@ -114,10 +131,10 @@ export function buildContainer() {
     deleteExpense: new DeleteExpenseUseCase({ expenseRepository }),
     addDocument: new AddDocumentUseCase({ documentRepository, carRepository }),
     deleteDocument: new DeleteDocumentUseCase({ documentRepository }),
-    toggleOffDay: new ToggleOffDayUseCase({ offDayRepository, carRepository }),
+    toggleOffDay,
     bulkOffDay: new BulkOffDayUseCase({ offDayRepository, carRepository }),
     clearOffDay: new ClearOffDayUseCase({ offDayRepository }),
-    getSettings: new GetSettingsUseCase({ settingsRepository }),
+    getSettings,
     updateSettings: new UpdateSettingsUseCase({ settingsRepository }),
     createRefinance: new CreateRefinanceUseCase({ refinanceRepository, carRepository }),
     payRefinance: new PayRefinanceUseCase({ refinanceRepository }),
@@ -138,6 +155,8 @@ export function buildContainer() {
     deleteHandover: new DeleteHandoverUseCase({ handoverRepository }),
     getReminders,
     sendWhatsApp,
+    sendTelegram,
+    whatsAppAgent,
     subscribePush: new SubscribePushUseCase({ pushSubscriptionRepository }),
     unsubscribePush: new UnsubscribePushUseCase({ pushSubscriptionRepository }),
     syncNequi: new SyncNequiUseCase({ pendingPaymentRepository, mailReader }),
@@ -154,10 +173,10 @@ export function buildContainer() {
     repositories: {
       userRepository, carRepository, pendingPaymentRepository,
       settingsRepository, reminderLogRepository, pushSubscriptionRepository,
-      handoverRepository,
+      handoverRepository, agentSessionRepository,
     },
     notify: {
-      emailNotifier, pushNotifier, whatsappNotifier, reminderDispatcher,
+      emailNotifier, pushNotifier, whatsappNotifier, telegramNotifier, reminderDispatcher,
       publicKey: config.notifications.vapidPublicKey,
       channels: reminderDispatcher.channels,
     },

@@ -76,42 +76,48 @@ describe("🟢 WhatsAppNotifier (Cloud API)", () => {
     });
   });
 
-  it("send reintenta con plantilla si la API pide re-engagement (131047)", async () => {
+  it("send reintenta con la plantilla UTILITY usando los componentes provistos (131047)", async () => {
     fetch
       .mockResolvedValueOnce(errJson(400, { code: 131047, message: "re-engagement" }))
       .mockResolvedValueOnce(okJson({ messages: [{ id: "wamid.tpl" }] }));
-    const n = make({ template: "recordatorio_diario" });
-    const r = await n.send({ to: "573001112233", text: "hola" });
+    const n = make({ template: "wdrivers_recordatorio" });
+    const components = [{
+      type: "body",
+      parameters: [
+        { type: "text", text: "3" },
+        { type: "text", text: "$450.000" },
+        { type: "text", text: "$1.200.000" },
+      ],
+    }];
+    const r = await n.send({ to: "573001112233", text: "hola", components });
 
     expect(r.messages[0].id).toBe("wamid.tpl");
-    const tplPayload = JSON.parse(fetch.mock.calls[1][1].body);
-    expect(tplPayload.type).toBe("template");
-    expect(tplPayload.template.name).toBe("recordatorio_diario");
-    expect(tplPayload.template.language.code).toBe("es");
+    const payload = JSON.parse(fetch.mock.calls[1][1].body);
+    expect(payload.type).toBe("template");
+    expect(payload.template.name).toBe("wdrivers_recordatorio");
+    expect(payload.template.language.code).toBe("es");
+    expect(payload.template.components[0].type).toBe("body");
+    expect(payload.template.components[0].parameters).toHaveLength(3);
   });
 
-  it("send adjunta el texto como parámetro {{1}} de la plantilla, aplanado a una línea", async () => {
-    fetch
-      .mockResolvedValueOnce(errJson(400, { code: 131047, message: "re-engagement" }))
-      .mockResolvedValueOnce(okJson({ messages: [{ id: "wamid.tpl2" }] }));
-    const n = make({ template: "wdrivers_aviso" });
-    const r = await n.send({ to: "573001112233", text: "Linea 1\nLinea 2\t\tfin" });
-
-    expect(r.messages[0].id).toBe("wamid.tpl2");
-    const tpl = JSON.parse(fetch.mock.calls[1][1].body).template;
-    expect(tpl.components[0].type).toBe("body");
-    expect(tpl.components[0].parameters[0].text).toBe("Linea 1 • Linea 2 • fin");
-  });
-
-  it("send recorta el parámetro de la plantilla al límite de la Cloud API", async () => {
+  it("send permite sobreescribir el nombre de la plantilla con `template`", async () => {
     fetch
       .mockResolvedValueOnce(errJson(400, { code: 470, message: "window" }))
-      .mockResolvedValueOnce(okJson({ messages: [{ id: "wamid.tpl3" }] }));
-    const n = make({ template: "wdrivers_aviso" });
-    await n.send({ to: "573001112233", text: "A".repeat(2000) });
+      .mockResolvedValueOnce(okJson({ messages: [{ id: "wamid.tpl.ov" }] }));
+    const n = make();
+    const components = [{ type: "body", parameters: [{ type: "text", text: "x" }] }];
+    const r = await n.send({ to: "573001112233", text: "hola", template: "otra", components });
 
-    const tpl = JSON.parse(fetch.mock.calls[1][1].body).template;
-    expect(tpl.components[0].parameters[0].text.length).toBeLessThanOrEqual(900);
+    expect(r.messages[0].id).toBe("wamid.tpl.ov");
+    const payload = JSON.parse(fetch.mock.calls[1][1].body);
+    expect(payload.template.name).toBe("otra");
+  });
+
+  it("send NO reintenta con plantilla si el llamador no aporta componentes", async () => {
+    fetch.mockResolvedValueOnce(errJson(400, { code: 131047, message: "re-engagement" }));
+    const n = make({ template: "wdrivers_recordatorio" });
+    await expect(n.send({ to: "573001112233", text: "hola" })).rejects.toMatchObject({ code: 131047 });
+    expect(fetch).toHaveBeenCalledTimes(1);
   });
 
   it("send NO reintenta si no hay plantilla configurada", async () => {

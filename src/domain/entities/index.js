@@ -8,6 +8,10 @@ const MAX_PHONE = config.security.phoneMaxLength;
 const MAX_EMAIL = 160;
 const MAX_CATEGORY = config.security.categoryMaxLength;
 const MAX_DOCTYPE = config.security.documentTypeMaxLength;
+const MAX_CHATID = 32;
+
+// Canales de notificación soportados. Solo uno está activo a la vez.
+export const NOTIFY_CHANNELS = ["whatsapp", "telegram"];
 
 const trunc = (s, n) => (typeof s === "string" ? s.slice(0, n) : s || "");
 const req = (s, n) => {
@@ -171,12 +175,18 @@ export class PendingPayment {
 }
 
 export class Settings {
-  constructor({ adminPhone = "", adminEmail = "", remindersEnabled = true, morningHour = 8, eveningHour = 20 } = {}) {
+  constructor({ adminPhone = "", adminEmail = "", remindersEnabled = true, morningHour = 8, lateMorningHour = 11, middayHour = 14, afternoonHour = 16, eveningHour = 20, notifyChannel = "whatsapp", telegramChatId = "" } = {}) {
     this.adminPhone = req(adminPhone, MAX_PHONE);
     this.adminEmail = req(adminEmail, MAX_EMAIL);
     this.remindersEnabled = remindersEnabled === undefined ? true : !!remindersEnabled;
     this.morningHour = clampHour(morningHour, 8);
+    this.lateMorningHour = clampHour(lateMorningHour, 11);
+    this.middayHour = clampHour(middayHour, 14);
+    this.afternoonHour = clampHour(afternoonHour, 16);
     this.eveningHour = clampHour(eveningHour, 20);
+    // Canal activo (solo uno a la vez) y chat id del admin en Telegram.
+    this.notifyChannel = NOTIFY_CHANNELS.includes(notifyChannel) ? notifyChannel : "whatsapp";
+    this.telegramChatId = req(telegramChatId, MAX_CHATID);
   }
   validate() {
     if (this.adminEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(this.adminEmail)) {
@@ -190,7 +200,12 @@ export class Settings {
       adminEmail: this.adminEmail,
       remindersEnabled: this.remindersEnabled,
       morningHour: this.morningHour,
+      lateMorningHour: this.lateMorningHour,
+      middayHour: this.middayHour,
+      afternoonHour: this.afternoonHour,
       eveningHour: this.eveningHour,
+      notifyChannel: this.notifyChannel,
+      telegramChatId: this.telegramChatId,
     };
   }
 }

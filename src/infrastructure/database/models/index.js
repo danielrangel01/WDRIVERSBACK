@@ -69,7 +69,12 @@ const settingsSchema = new Schema(
     adminEmail: { type: String, default: "" },
     remindersEnabled: { type: Boolean, default: true },
     morningHour: { type: Number, default: 8 },
+    lateMorningHour: { type: Number, default: 11 },
+    middayHour: { type: Number, default: 14 },
+    afternoonHour: { type: Number, default: 16 },
     eveningHour: { type: Number, default: 20 },
+    notifyChannel: { type: String, enum: ["whatsapp", "telegram"], default: "whatsapp" },
+    telegramChatId: { type: String, default: "" },
   },
   { timestamps: true }
 );
@@ -139,6 +144,19 @@ const handoverSchema = new Schema(
 );
 handoverSchema.index({ carId: 1, startDate: 1 });
 
+// Sesión del asistente conversacional (check-in paso a paso por WhatsApp).
+const agentSessionSchema = new Schema(
+  {
+    phone: { type: String, required: true, unique: true },
+    date: { type: String, default: "" },
+    queue: { type: [String], default: [] },
+    index: { type: Number, default: 0 },
+    answers: { type: [{ carId: String, action: String, at: Date }], default: [] },
+    status: { type: String, default: "active" },
+  },
+  { timestamps: true }
+);
+
 export const UserModel = mongoose.model("User", userSchema);
 export const CarModel = mongoose.model("Car", carSchema);
 export const PaymentModel = mongoose.model("Payment", paymentSchema);
@@ -151,3 +169,4 @@ export const PendingPaymentModel = mongoose.model("PendingPayment", pendingPayme
 export const PushSubscriptionModel = mongoose.model("PushSubscription", pushSubscriptionSchema);
 export const ReminderLogModel = mongoose.model("ReminderLog", reminderLogSchema);
 export const HandoverModel = mongoose.model("Handover", handoverSchema);
+export const AgentSessionModel = mongoose.model("AgentSession", agentSessionSchema);
