@@ -12,6 +12,7 @@ import { JwtTokenService } from "../../infrastructure/security/JwtTokenService.j
 import { NequiMailReader } from "../../infrastructure/mail/NequiMailReader.js";
 import { EmailNotifier } from "../../infrastructure/notify/EmailNotifier.js";
 import { PushNotifier } from "../../infrastructure/notify/PushNotifier.js";
+import { WhatsAppNotifier } from "../../infrastructure/notify/WhatsAppNotifier.js";
 import { ReminderDispatcher } from "../../infrastructure/notify/ReminderDispatcher.js";
 
 import { LoginUseCase, ChangeCredentialsUseCase } from "../../application/use-cases/auth/index.js";
@@ -29,6 +30,7 @@ import { GetAgendaUseCase } from "../../application/use-cases/agenda/index.js";
 import { GetCollectionsUseCase } from "../../application/use-cases/collections/index.js";
 import { GetAccountStatementUseCase } from "../../application/use-cases/statement/index.js";
 import { GetRemindersUseCase } from "../../application/use-cases/reminders/index.js";
+import { SendWhatsAppUseCase } from "../../application/use-cases/whatsapp/index.js";
 import {
   RegisterHandoverUseCase, CloseHandoverUseCase, UpdateHandoverUseCase,
   ListHandoversUseCase, DeleteHandoverUseCase,
@@ -71,13 +73,30 @@ export function buildContainer() {
     privateKey: config.notifications.vapidPrivateKey,
     subject: config.notifications.vapidSubject,
   });
-  const reminderDispatcher = new ReminderDispatcher({ emailNotifier, pushNotifier, pushSubscriptionRepository });
+  const whatsappNotifier = new WhatsAppNotifier({
+    token: config.notifications.whatsappToken,
+    phoneNumberId: config.notifications.whatsappPhoneNumberId,
+    apiVersion: config.notifications.whatsappApiVersion,
+    template: config.notifications.whatsappTemplate,
+    templateLang: config.notifications.whatsappTemplateLang,
+  });
+  const reminderDispatcher = new ReminderDispatcher({
+    emailNotifier, pushNotifier, whatsappNotifier, pushSubscriptionRepository,
+  });
 
   const addPayment = new AddPaymentUseCase({ paymentRepository, carRepository });
 
   const getAgenda = new GetAgendaUseCase({
     carRepository, paymentRepository, offDayRepository, refinanceRepository, documentRepository, pendingPaymentRepository,
     handoverRepository,
+  });
+
+  const getReminders = new GetRemindersUseCase({ agendaUseCase: getAgenda, settingsRepository });
+  const getAccountStatement = new GetAccountStatementUseCase({
+    carRepository, paymentRepository, offDayRepository, refinanceRepository, handoverRepository,
+  });
+  const sendWhatsApp = new SendWhatsAppUseCase({
+    whatsappNotifier, statementUseCase: getAccountStatement, remindersUseCase: getReminders, settingsRepository,
   });
 
   const useCases = {
@@ -111,13 +130,14 @@ export function buildContainer() {
     resetData: new ResetDataUseCase({ paymentRepository, expenseRepository, documentRepository, offDayRepository, refinanceRepository, pendingPaymentRepository, handoverRepository }),
     getAgenda,
     getCollections: new GetCollectionsUseCase({ carRepository, paymentRepository, offDayRepository, refinanceRepository }),
-    getAccountStatement: new GetAccountStatementUseCase({ carRepository, paymentRepository, offDayRepository, refinanceRepository, handoverRepository }),
+    getAccountStatement,
     registerHandover: new RegisterHandoverUseCase({ handoverRepository, carRepository }),
     closeHandover: new CloseHandoverUseCase({ handoverRepository }),
     updateHandover: new UpdateHandoverUseCase({ handoverRepository }),
     listHandovers: new ListHandoversUseCase({ handoverRepository }),
     deleteHandover: new DeleteHandoverUseCase({ handoverRepository }),
-    getReminders: new GetRemindersUseCase({ agendaUseCase: getAgenda, settingsRepository }),
+    getReminders,
+    sendWhatsApp,
     subscribePush: new SubscribePushUseCase({ pushSubscriptionRepository }),
     unsubscribePush: new UnsubscribePushUseCase({ pushSubscriptionRepository }),
     syncNequi: new SyncNequiUseCase({ pendingPaymentRepository, mailReader }),
@@ -137,7 +157,7 @@ export function buildContainer() {
       handoverRepository,
     },
     notify: {
-      emailNotifier, pushNotifier, reminderDispatcher,
+      emailNotifier, pushNotifier, whatsappNotifier, reminderDispatcher,
       publicKey: config.notifications.vapidPublicKey,
       channels: reminderDispatcher.channels,
     },

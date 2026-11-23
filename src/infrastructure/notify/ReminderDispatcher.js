@@ -5,18 +5,23 @@ const dmy = (date) => {
 
 /**
  * Reparte un recordatorio ya calculado por los canales de envío automático:
- * correo (SMTP) y Web Push (PWA). WhatsApp e in-app no se envían aquí:
- * se sirven como texto/enlace desde el endpoint de recordatorios.
+ * correo (SMTP), Web Push (PWA) y WhatsApp (Cloud API). El canal in-app no se
+ * envía aquí: se sirve como texto/enlace desde el endpoint de recordatorios.
  */
 export class ReminderDispatcher {
-  constructor({ emailNotifier, pushNotifier, pushSubscriptionRepository } = {}) {
+  constructor({ emailNotifier, pushNotifier, whatsappNotifier, pushSubscriptionRepository } = {}) {
     this.email = emailNotifier;
     this.push = pushNotifier;
+    this.whatsapp = whatsappNotifier;
     this.pushSubs = pushSubscriptionRepository;
   }
 
   get channels() {
-    return { email: !!(this.email && this.email.enabled), push: !!(this.push && this.push.enabled) };
+    return {
+      email: !!(this.email && this.email.enabled),
+      push: !!(this.push && this.push.enabled),
+      whatsapp: !!(this.whatsapp && this.whatsapp.enabled),
+    };
   }
 
   async dispatch({ date, moment, reminders = [], whatsappText = "", settings = {} }) {
@@ -32,6 +37,14 @@ export class ReminderDispatcher {
       let text = whatsappText;
       if (waLink) text += `\n\n📲 Enviar por WhatsApp: ${waLink}`;
       results.email = await this.email.send({ to: settings.adminEmail, subject, text });
+    }
+
+    if (this.whatsapp && this.whatsapp.enabled && phone) {
+      try {
+        results.whatsapp = await this.whatsapp.send({ to: phone, text: whatsappText });
+      } catch (err) {
+        results.whatsapp = { ok: false, error: err && err.message ? err.message : String(err) };
+      }
     }
 
     if (this.push && this.push.enabled && this.pushSubs) {

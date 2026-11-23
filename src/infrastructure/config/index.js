@@ -248,9 +248,19 @@ export const config = {
     vapidPublicKey: process.env.VAPID_PUBLIC_KEY || "",
     vapidPrivateKey: process.env.VAPID_PRIVATE_KEY || "",
     vapidSubject: process.env.VAPID_SUBJECT || "mailto:admin@wdrivers.app",
+    // WhatsApp Cloud API (Meta). Se activa solo si hay token y número emisor.
+    get whatsappEnabled() {
+      return !!(process.env.WHATSAPP_TOKEN && process.env.WHATSAPP_PHONE_NUMBER_ID);
+    },
+    whatsappToken: process.env.WHATSAPP_TOKEN || "",
+    whatsappPhoneNumberId: process.env.WHATSAPP_PHONE_NUMBER_ID || "",
+    whatsappApiVersion: process.env.WHATSAPP_API_VERSION || "v21.0",
+    // Plantilla aprobada (obligatoria para escribir fuera de la ventana de 24 h).
+    whatsappTemplate: process.env.WHATSAPP_TEMPLATE || "",
+    whatsappTemplateLang: process.env.WHATSAPP_TEMPLATE_LANG || "es",
     // Zona horaria para el cálculo de mañana/tarde (Colombia por defecto).
     timezone: process.env.REMINDER_TZ || "America/Bogota",
     checkEveryMs: Number(process.env.REMINDER_CHECK_EVERY_MS || 5 * 60 * 1000),
-    get enabled() { return this.emailEnabled || this.pushEnabled; },
+    get enabled() { return this.emailEnabled || this.pushEnabled || this.whatsappEnabled; },
   },
 };

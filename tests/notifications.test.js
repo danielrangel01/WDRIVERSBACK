@@ -92,7 +92,7 @@ describe("📤 ReminderDispatcher", () => {
       pushNotifier: { enabled: false },
       pushSubscriptionRepository: { findAll: async () => [], removeByEndpoint: async () => 0 },
     });
-    expect(dispatcher.channels).toEqual({ email: false, push: false });
+    expect(dispatcher.channels).toEqual({ email: false, push: false, whatsapp: false });
     const res = await dispatcher.dispatch({ date: "2024-06-30", moment: "morning", reminders: [], whatsappText: "", settings: {} });
     expect(res).toEqual({});
   });

@@ -168,6 +168,15 @@ export function buildControllers(useCases, { notify = {} } = {}) {
     unsubscribePush: asyncHandler(async (req, res) => {
       res.json(await useCases.unsubscribePush.execute({ endpoint: req.body && req.body.endpoint }));
     }),
+
+    // ── WhatsApp (Cloud API / Meta) ───────────────────────────────────────
+    whatsappStatus: asyncHandler(async (req, res) => {
+      res.json({ enabled: !!(notify.channels && notify.channels.whatsapp) });
+    }),
+    sendWhatsApp: asyncHandler(async (req, res) => {
+      const result = await useCases.sendWhatsApp.execute(req.body || {});
+      res.json(result);
+    }),
     resetData: asyncHandler(async (req, res) => {
       res.json(await useCases.resetData.execute());
     }),

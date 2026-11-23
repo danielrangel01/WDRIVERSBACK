@@ -122,6 +122,8 @@ function buildApiRoutes(controllers, authMiddleware) {
   api.get("/push/public-key", controllers.getPushPublicKey);
   api.post("/push/subscribe", controllers.subscribePush);
   api.post("/push/unsubscribe", controllers.unsubscribePush);
+  api.get("/whatsapp/status", controllers.whatsappStatus);
+  api.post("/whatsapp/send", controllers.sendWhatsApp);
   api.get("/cars", controllers.listCars);
   api.post("/cars", controllers.addCar);
   api.put("/cars/:id", controllers.updateCar);
