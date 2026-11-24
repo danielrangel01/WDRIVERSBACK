@@ -1,5 +1,5 @@
 import {
-  INTENT, parseCommand, normalizePlate, formatCOP, samePhone,
+  INTENT, parseCommand, normalizePlate, formatCOP, samePhone, payerLabel,
 } from "../../../domain/services/AgentCommand.js";
 import { buildDayCloseReport } from "../../../domain/services/DayCloseReport.js";
 
@@ -71,7 +71,7 @@ const addDays = (iso, delta) => {
  * elige con el parámetro `channel` ("whatsapp" | "telegram").
  */
 export class WhatsAppAgentUseCase {
-  constructor({ getAgenda, getSettings, addPayment, toggleOffDay, sendWhatsApp, sendTelegram, agentSessionRepository, checkinTemplate, telegramChatId, closureLookbackDays } = {}) {
+  constructor({ getAgenda, getSettings, addPayment, toggleOffDay, sendWhatsApp, sendTelegram, agentSessionRepository, listPendingPayments, approvePendingPayment, dismissPendingPayment, checkinTemplate, telegramChatId, closureLookbackDays } = {}) {
     this.getAgenda = getAgenda;
     this.getSettings = getSettings;
     this.addPayment = addPayment;
@@ -79,6 +79,10 @@ export class WhatsAppAgentUseCase {
     this.sendWhatsApp = sendWhatsApp;
     this.sendTelegram = sendTelegram;
     this.sessions = agentSessionRepository;
+    // Conciliación de pagos Nequi desde el chat (botones del aviso).
+    this.listPendingPayments = listPendingPayments;
+    this.approvePendingPayment = approvePendingPayment;
+    this.dismissPendingPayment = dismissPendingPayment;
     this.checkinTemplate = checkinTemplate || "wdrivers_checkin_util";
     // Respaldo del chat id del admin (si no está en Ajustes).
     this.telegramChatId = telegramChatId || "";
@@ -181,6 +185,11 @@ export class WhatsAppAgentUseCase {
     const todayAgenda = await this.getAgenda.execute();
     const active = session && session.status === "active";
     const selecting = session && session.status === "closures";
+    // El mensaje puede ser la respuesta (placa o número) de una conciliación
+    // Nequi en curso: en ese caso se asigna el pago al carro elegido.
+    if (session && session.status === "nequi" && this.isNequiReply(cmd)) {
+      return this.pickNequiCar(session, cmd, todayAgenda);
+    }
     // Durante una revisión activa (de hoy o de una fecha anterior elegida) las
     // acciones aplican al día de la SESIÓN, no necesariamente a hoy.
     const sessionAgenda = active ? await this.agendaFor(session) : todayAgenda;
@@ -444,6 +453,9 @@ export class WhatsAppAgentUseCase {
   /** Traduce el token de un botón (interactivo, de menú o de plantilla) a una acción. */
   async handleAction(phone, action, session) {
     const raw = String(action || "");
+    // Botones del aviso de pagos Nequi (✅ conciliar / 🚫 descartar).
+    const nequi = await this.handleNequiAction(phone, raw);
+    if (nequi) return nequi;
     if (/^(pay|off|ok):(.+)$/.test(raw)) {
       return this.handleButton(phone, raw, session);
     }
@@ -571,6 +583,168 @@ export class WhatsAppAgentUseCase {
     return { text: head + buildDayCloseReport(agenda) };
   }
 
+  // ── Conciliación de pagos Nequi ─────────────────────────────────────────
+  /**
+   * Atiende los botones del aviso de pagos Nequi. `nq:ok:<id>` concilia el pago
+   * (asignándolo al carro cuyo conductor coincide con quien pagó; si no hay
+   * coincidencia, pregunta a qué carro) y `nq:no:<id>` lo descarta.
+   * Devuelve null cuando la acción no es de Nequi.
+   */
+  async handleNequiAction(phone, action) {
+    const m = /^nq:(ok|no):([0-9a-fA-F]{24})$/.exec(String(action || ""));
+    if (!m) return null;
+    const [, verb, id] = m;
+
+    if (verb === "no") {
+      if (!this.dismissPendingPayment) return { text: "⚠️ No puedo descartar pagos ahora mismo." };
+      try {
+        await this.dismissPendingPayment.execute({ id });
+      } catch (err) {
+        return { text: `⚠️ No pude descartar el pago (${err.message}).` };
+      }
+      return { text: "🚫 Pago descartado. No se registró nada." };
+    }
+
+    const pending = await this.findPending(id);
+    if (!pending) return { text: "ℹ️ Ese pago ya no está pendiente de conciliar." };
+
+    const agenda = await this.getAgenda.execute();
+    const car = this.matchCarByPayer(pending.payerName, agenda);
+    if (car) {
+      if (this.sessions) await this.sessions.clear(agentKey(phone));
+      return { text: await this.approveNequi(pending, car) };
+    }
+    return this.startNequiConciliation(phone, pending, agenda);
+  }
+
+  /** Busca un pago pendiente por id (solo devuelve los que siguen "pending"). */
+  async findPending(id) {
+    if (!this.listPendingPayments) return null;
+    const list = await this.listPendingPayments.execute({ status: "pending" });
+    return (list || []).find((p) => p.id === id) || null;
+  }
+
+  /** Registra el pago real asignado al carro. Devuelve el texto de respuesta. */
+  async approveNequi(pending, car) {
+    if (!this.approvePendingPayment) return "⚠️ No puedo conciliar pagos ahora mismo.";
+    try {
+      await this.approvePendingPayment.execute({
+        id: pending.id, carId: car.carId, date: pending.detectedDate,
+      });
+    } catch (err) {
+      return `⚠️ No pude conciliar el pago (${err.message}).`;
+    }
+    return `✅ *${formatCOP(pending.amount)}* de ${payerLabel(pending)} asignado a *${car.plate}* (${dmy(pending.detectedDate)}).`;
+  }
+
+  /** Guarda la sesión de conciliación y pregunta a qué carro asignar el pago. */
+  async startNequiConciliation(phone, pending, agenda) {
+    const session = {
+      phone: agentKey(phone),
+      date: pending.detectedDate,
+      status: "nequi",
+      pendingId: pending.id,
+      queue: (agenda.checklist || []).map((c) => c.carId),
+      index: 0,
+      answers: [],
+    };
+    if (this.sessions) await this.sessions.save(session);
+    return this.nequiAskText(session, pending, agenda);
+  }
+
+  /** Pregunta a qué carro asignar el pago, con la lista numerada de la flota. */
+  nequiAskText(session, pending, agenda) {
+    const cars = (session.queue || [])
+      .map((carId) => this.findCar(agenda, carId))
+      .filter(Boolean);
+    const lines = cars.map((c, i) =>
+      `${i + 1}. *${c.plate}*${c.driverName ? ` — ${c.driverName}` : ""}`
+    );
+    return {
+      text: [
+        `🏦 Pago Nequi de *${formatCOP(pending.amount)}* — ${payerLabel(pending)}`,
+        `Fecha: ${dmy(pending.detectedDate)}`,
+        "",
+        "¿A qué carro lo asigno?",
+        ...lines,
+      ].join("\n"),
+      footer: "Responde con el número o con la placa (ej. ABC123).",
+    };
+  }
+
+  /** ¿El mensaje responde a una conciliación Nequi (trae placa o número)? */
+  isNequiReply(cmd) {
+    if (!(cmd.refs || []).length) return false;
+    const ignore = [
+      INTENT.HELP, INTENT.STATUS, INTENT.PENDING,
+      INTENT.CHECKIN, INTENT.CLOSURES, INTENT.CLOSE,
+    ];
+    return !ignore.includes(cmd.intent);
+  }
+
+  /** Carro elegido por placa o por el número de la lista de la sesión. */
+  resolveNequiCar(session, cmd, agenda) {
+    const byPlate = new Map((agenda.checklist || []).map((i) => [normalizePlate(i.plate), i]));
+    for (const ref of cmd.refs || []) {
+      if (ref.kind === "plate") {
+        const hit = byPlate.get(ref.value);
+        if (hit) return hit;
+      }
+    }
+    const idx = (cmd.refs || []).find((r) => r.kind === "index");
+    if (idx) {
+      const carId = (session.queue || [])[idx.value - 1];
+      if (carId) return this.findCar(agenda, carId);
+    }
+    return null;
+  }
+
+  /** Asigna el pago pendiente al carro respondido; si no lo resuelve, re-pregunta. */
+  async pickNequiCar(session, cmd, agenda) {
+    const pending = await this.findPending(session.pendingId);
+    if (!pending) {
+      if (this.sessions) await this.sessions.clear(session.phone);
+      return { text: "ℹ️ Ese pago ya no está pendiente de conciliar." };
+    }
+    const car = this.resolveNequiCar(session, cmd, agenda);
+    if (!car) {
+      const out = this.nequiAskText(session, pending, agenda);
+      out.text = `🤔 No encontré ese carro.\n\n${out.text}`;
+      return out;
+    }
+    if (this.sessions) await this.sessions.clear(session.phone);
+    return { text: await this.approveNequi(pending, car) };
+  }
+
+  /** Tokens comparables de un nombre (sin tildes, en mayúsculas, ≥3 letras). */
+  nameTokens(value) {
+    return String(value || "")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toUpperCase()
+      .split(/[^A-Z0-9]+/)
+      .filter((t) => t.length >= 3);
+  }
+
+  /**
+   * Carro cuyo conductor coincide con quien pagó. Se exige coincidencia de 2+
+   * tokens y sin empate: ante la duda es mejor preguntar que asignar mal.
+   */
+  matchCarByPayer(payerName, agenda) {
+    const payer = new Set(this.nameTokens(payerName));
+    if (payer.size === 0) return null;
+    let best = null;
+    let bestScore = 0;
+    let tie = false;
+    for (const car of agenda.checklist || []) {
+      const shared = this.nameTokens(car.driverName).filter((t) => payer.has(t)).length;
+      if (shared === 0) continue;
+      if (shared > bestScore) { best = car; bestScore = shared; tie = false; }
+      else if (shared === bestScore) { tie = true; }
+    }
+    return bestScore >= 2 && !tie ? best : null;
+  }
+
   // ── Resolución de carro ────────────────────────────────────────────────
   findCar(agenda, carId) {
     if (!carId) return null;
@@ -679,6 +853,7 @@ export class WhatsAppAgentUseCase {
       "Ejemplo: _ABC123 taller_",
       "🚗 *detalle* — ficha de un carro: deuda, pagado hoy y estado.",
       "Ejemplo: _ABC123_",
+      "🏦 *Nequi* — cuando entra plata te aviso con el nombre de quien pagó. Toca ✅ para conciliarlo (si no reconozco el carro, te lo pregunto) o 🚫 para descartarlo.",
       "",
       "Puedes usar la *placa* o el *número* de la lista de *pendientes*.",
     ].join("\n");

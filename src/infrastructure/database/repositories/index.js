@@ -271,8 +271,9 @@ export class MongoRefinanceRepository extends IRefinanceRepository {
 // ── PendingPayments (pagos entrantes detectados por correo) ────────────────────
 const toPendingPayment = (d) => new PendingPayment({
   id: id(d), amount: d.amount, detectedDate: d.detectedDate, source: d.source,
-  from: d.from, subject: d.subject, snippet: d.snippet, messageId: d.messageId,
-  status: d.status, approvedPaymentId: d.approvedPaymentId, createdAt: d.createdAt,
+  from: d.from, payerName: d.payerName, subject: d.subject, snippet: d.snippet,
+  messageId: d.messageId, status: d.status, approvedPaymentId: d.approvedPaymentId,
+  createdAt: d.createdAt,
 });
 
 export class MongoPendingPaymentRepository extends IPendingPaymentRepository {
@@ -289,7 +290,8 @@ export class MongoPendingPaymentRepository extends IPendingPaymentRepository {
     if (!Array.isArray(pending) || pending.length === 0) return [];
     const docs = pending.map((p) => ({
       amount: p.amount, detectedDate: p.detectedDate, source: p.source,
-      from: p.from, subject: p.subject, snippet: p.snippet, messageId: p.messageId, status: p.status,
+      from: p.from, payerName: p.payerName, subject: p.subject, snippet: p.snippet,
+      messageId: p.messageId, status: p.status,
     }));
     try {
       const inserted = await PendingPaymentModel.insertMany(docs, { ordered: false });
@@ -390,6 +392,7 @@ export class MongoAgentSessionRepository extends IAgentSessionRepository {
       index: d.index || 0,
       answers: (d.answers || []).map((a) => ({ carId: a.carId, action: a.action, at: a.at })),
       status: d.status || "active",
+      pendingId: d.pendingId || "",
     };
   }
   async save(session) {
@@ -404,6 +407,7 @@ export class MongoAgentSessionRepository extends IAgentSessionRepository {
         index: (session && session.index) || 0,
         answers: (session && session.answers) || [],
         status: (session && session.status) || "active",
+        pendingId: (session && session.pendingId) || "",
       },
       { upsert: true, new: true }
     );

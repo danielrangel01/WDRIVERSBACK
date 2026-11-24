@@ -65,8 +65,10 @@ export class TelegramNotifier {
   }
 
   /**
-   * Mensaje con botones inline. Cada `button = { id, title }` se envía como una
-   * fila; al pulsarlo, Telegram devuelve un `callback_query` con `data === id`.
+   * Mensaje con botones inline. Cada entrada de `buttons` es una fila:
+   *  - `{ id, title }`           → un botón en su propia fila.
+   *  - `{ row: [{ id, title }] }` → varios botones en la MISMA fila.
+   * Al pulsar, Telegram devuelve un `callback_query` con `data === id`.
    * No hay límite de "ventana de 24 h": funciona siempre.
    */
   async sendButtons({ to, text, buttons = [], footer = "" }) {
@@ -77,10 +79,21 @@ export class TelegramNotifier {
     if (!body) return { ok: false, skipped: true, reason: "empty_message" };
     if (footer) body += `\n\n_${String(footer)}_`;
 
+    const button = (b) => (b && b.id && b.title
+      ? { text: String(b.title).slice(0, 64), callback_data: String(b.id).slice(0, 64) }
+      : null);
+
     const rows = (buttons || [])
-      .filter((b) => b && b.id && b.title)
-      .slice(0, 6)
-      .map((b) => [{ text: String(b.title).slice(0, 64), callback_data: String(b.id).slice(0, 64) }]);
+      .map((b) => {
+        if (b && Array.isArray(b.row)) {
+          const cells = b.row.map(button).filter(Boolean);
+          return cells.length ? cells : null;
+        }
+        const one = button(b);
+        return one ? [one] : null;
+      })
+      .filter(Boolean)
+      .slice(0, 8);
     if (rows.length === 0) return this.sendText({ to: chatId, text: body });
 
     const base = { chat_id: chatId, text: body, reply_markup: { inline_keyboard: rows } };

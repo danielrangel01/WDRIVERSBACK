@@ -66,6 +66,27 @@ describe("parseNequiEmail", () => {
     expect(r).not.toBeNull();
     expect(r.isPayment).toBe(true);
     expect(r.amount).toBe(10000);
+    expect(r.payerName).toBe("DANIEL FARID RANGEL LLANOS");
+  });
+
+  it("extrae el nombre del pagador cuando va antes del verbo", () => {
+    const r = parseNequiEmail({
+      subject: "Recibiste un pago",
+      text: "JUAN DAVID OSPINA RESTREPO te envió $240.000 el 24 de noviembre de 2026.",
+      date,
+    });
+    expect(r.amount).toBe(240000);
+    expect(r.payerName).toBe("JUAN DAVID OSPINA RESTREPO");
+  });
+
+  it("deja vacío el nombre si el correo no lo trae", () => {
+    const r = parseNequiEmail({
+      subject: "Recibiste un pago",
+      text: "Recibiste un pago por $240.000. ¡Ya está disponible!",
+      date,
+    });
+    expect(r.amount).toBe(240000);
+    expect(r.payerName).toBe("");
   });
 
   it("devuelve null si no hay monto", () => {

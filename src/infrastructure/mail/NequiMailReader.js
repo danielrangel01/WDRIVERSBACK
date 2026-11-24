@@ -67,6 +67,7 @@ export class NequiMailReader {
               detectedDate: result.detectedDate,
               snippet: result.snippet,
               from: result.from,
+              payerName: result.payerName,
               subject: String(parsed.subject || "").slice(0, 200),
               messageId: String(messageId).slice(0, 300),
             });

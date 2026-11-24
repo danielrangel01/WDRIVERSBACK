@@ -86,6 +86,7 @@ const pendingPaymentSchema = new Schema(
     detectedDate: { type: String, required: true },          // YYYY-MM-DD sugerida
     source: { type: String, default: "nequi" },
     from: { type: String, default: "" },                     // remitente del correo
+    payerName: { type: String, default: "" },                // nombre de quien envía el pago
     subject: { type: String, default: "" },
     snippet: { type: String, default: "" },                  // texto crudo (para ajustar el parser)
     messageId: { type: String, required: true, unique: true }, // idempotencia por correo
@@ -153,6 +154,8 @@ const agentSessionSchema = new Schema(
     index: { type: Number, default: 0 },
     answers: { type: [{ carId: String, action: String, at: Date }], default: [] },
     status: { type: String, default: "active" },
+    // Conciliación de un pago Nequi (status "nequi"): pago pendiente elegido.
+    pendingId: { type: String, default: "" },
   },
   { timestamps: true }
 );

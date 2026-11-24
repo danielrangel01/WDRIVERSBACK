@@ -94,7 +94,52 @@ export function extractAmount(text) {
   return amounts.length ? amounts[0].value : NaN;
 }
 
-// Parsea un correo. Devuelve { isPayment, amount, detectedDate, snippet } o null.
+// Palabras que no forman parte del nombre del pagador (cortan la captura).
+const NAME_STOP = new Set([
+  "el", "la", "los", "las", "un", "una", "desde", "en", "y", "con", "para",
+  "por", "del", "de", "al", "a", "su", "sus", "tu", "banco", "app", "nequi",
+  "bre", "linea", "chat", "cuenta", "comprobante", "saldo", "mensaje",
+]);
+const MONTHS = new Set([
+  "enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto",
+  "septiembre", "setiembre", "octubre", "noviembre", "diciembre",
+]);
+
+// Nombre del pagador: aparece tras el monto recibido ("Recibiste 10.000 de JUAN PEREZ el 9 de…").
+const PAYER_RX = /(?:recibiste|recibido|recibimos|recibió|recibes|has recibido|te\s+(?:envi|mand|transfir|consign|lleg|deposit)\w*|abono|ingreso|transferencia recibida|pago recibido|entrada de dinero)[^0-9]{0,30}?[0-9][0-9.,]*\s*(?:pesos)?\s*(?:de|del|por parte de)\s+([^\n.!?,;:]{3,80})/i;
+
+// Variante inversa: nombre ANTES del verbo ("JUAN PEREZ te envió $240.000").
+const PAYER_BEFORE_RX = /(?:^|[^A-Za-zÁÉÍÓÚÑáéíóúñ])([A-ZÁÉÍÓÚÑ][A-Za-zÁÉÍÓÚÑáéíóúñ'’.-]+(?:\s+[A-ZÁÉÍÓÚÑ][A-Za-zÁÉÍÓÚÑáéíóúñ'’.-]+){0,4})\s+(?:te\s+)?(?:envió|enviaron|envio|mandó|mandaron|transfirió|consignó|depositó|abonó|pagó)\s+\$?\s*[0-9]/;
+
+// Limpia la captura: corta en palabras de relleno, meses y números.
+function cleanPayerName(raw) {
+  const tokens = String(raw || "").replace(/["'()]/g, " ").split(/\s+/).filter(Boolean);
+  const out = [];
+  for (const t of tokens) {
+    const word = t.replace(/[.,;:]+$/, "");
+    const key = word.toLowerCase();
+    if (!key || /^\d/.test(word) || NAME_STOP.has(key) || MONTHS.has(key)) break;
+    out.push(word);
+    if (out.length >= 5) break;
+  }
+  const name = out.join(" ").trim();
+  return name.length >= 3 ? name : "";
+}
+
+// Extrae el nombre de quien envía el pago (vacío si el correo no lo trae).
+export function extractPayerName(text) {
+  const hay = String(text || "").replace(/\s+/g, " ").trim();
+  if (!hay) return "";
+  const after = PAYER_RX.exec(hay);
+  if (after) {
+    const name = cleanPayerName(after[1]);
+    if (name) return name;
+  }
+  const before = PAYER_BEFORE_RX.exec(hay);
+  return before ? cleanPayerName(before[1]) : "";
+}
+
+// Parsea un correo. Devuelve { isPayment, amount, detectedDate, payerName, snippet } o null.
 export function parseNequiEmail({ subject = "", text = "", html = "", date = new Date(), from = "" } = {}) {
   const body = (text && text.trim()) || stripHtml(html);
   const haystack = `${subject}\n${body}`;
@@ -110,6 +155,7 @@ export function parseNequiEmail({ subject = "", text = "", html = "", date = new
     isPayment,
     amount,
     detectedDate: toBogotaDateStr(date),
+    payerName: extractPayerName(haystack),
     snippet: body.slice(0, 300).trim(),
     from: String(from || "").slice(0, 160),
   };

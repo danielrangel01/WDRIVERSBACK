@@ -115,9 +115,15 @@ export function buildContainer() {
     telegramChatId: config.notifications.telegramAdminChatId,
   });
 
+  // Pagos Nequi (conciliación de los detectados por correo).
+  const listPendingPayments = new ListPendingPaymentsUseCase({ pendingPaymentRepository });
+  const approvePendingPayment = new ApprovePendingPaymentUseCase({ pendingPaymentRepository, addPaymentUseCase: addPayment });
+  const dismissPendingPayment = new DismissPendingPaymentUseCase({ pendingPaymentRepository });
+
   // Agente conversacional determinista (inbound por WhatsApp o Telegram).
   const whatsAppAgent = new WhatsAppAgentUseCase({
     getAgenda, getSettings, addPayment, toggleOffDay, sendWhatsApp, sendTelegram, agentSessionRepository,
+    listPendingPayments, approvePendingPayment, dismissPendingPayment,
     checkinTemplate: config.notifications.whatsappCheckinTemplate,
     telegramChatId: config.notifications.telegramAdminChatId,
   });
@@ -170,9 +176,9 @@ export function buildContainer() {
       pendingPaymentRepository, mailReader, sendTelegram, getSettings,
       telegramChatId: config.notifications.telegramAdminChatId,
     }),
-    listPendingPayments: new ListPendingPaymentsUseCase({ pendingPaymentRepository }),
-    approvePendingPayment: new ApprovePendingPaymentUseCase({ pendingPaymentRepository, addPaymentUseCase: addPayment }),
-    dismissPendingPayment: new DismissPendingPaymentUseCase({ pendingPaymentRepository }),
+    listPendingPayments,
+    approvePendingPayment,
+    dismissPendingPayment,
   };
 
   return {

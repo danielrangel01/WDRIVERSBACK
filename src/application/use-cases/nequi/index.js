@@ -1,5 +1,5 @@
 import { PendingPayment } from "../../../domain/entities/index.js";
-import { formatCOP } from "../../../domain/services/AgentCommand.js";
+import { formatCOP, payerLabel } from "../../../domain/services/AgentCommand.js";
 import { NotFoundError, ValidationError, ConflictError } from "../../../shared/errors.js";
 
 const validOid = (id) => typeof id === "string" && /^[0-9a-fA-F]{24}$/.test(id);
@@ -39,6 +39,7 @@ export class SyncNequiUseCase {
           detectedDate: c.detectedDate,
           source: "nequi",
           from: c.from,
+          payerName: c.payerName,
           subject: c.subject,
           snippet: c.snippet,
           messageId: c.messageId,
@@ -71,7 +72,8 @@ export class SyncNequiUseCase {
   }
 
   /**
-   * Envía a Telegram el aviso de pagos Nequi recién detectados. Nunca lanza:
+   * Envía a Telegram el aviso de pagos Nequi recién detectados, con el nombre de
+   * quien pagó y botones para conciliar/descartar sin abrir la app. Nunca lanza:
    * un fallo de notificación no debe romper la sincronización de correos.
    */
   async notifyNewPayments(items) {
@@ -80,21 +82,35 @@ export class SyncNequiUseCase {
       const to = await this.resolveChatId();
       if (!to) return;
 
-      const MAX = 10;
-      const lines = items.slice(0, MAX).map(
-        (p) => `• ${formatCOP(p.amount)} — ${p.from || "Nequi"} (${dmy(p.detectedDate)})`
-      );
-      if (items.length > MAX) lines.push(`…y ${items.length - MAX} más.`);
+      const MAX_LINES = 10;
+      const MAX_BUTTONS = 8;
+      const lines = items.slice(0, MAX_LINES)
+        .map((p) => `• *${formatCOP(p.amount)}* — ${payerLabel(p)} · ${dmy(p.detectedDate)}`);
+      if (items.length > MAX_LINES) lines.push(`…y ${items.length - MAX_LINES} más.`);
 
       const text = [
         `🏦 *Nequi* — ${items.length} pago(s) nuevo(s) por conciliar`,
         "",
         ...lines,
         "",
-        "_Ábrelo en la app: Pagos → Nequi para conciliarlos._",
+        "Toca un pago para conciliarlo con un carro, o descártalo.",
       ].join("\n");
 
-      await this.sendTelegram.execute({ kind: "text", to, text });
+      // Un renglón por pago: ✅ conciliar / 🚫 descartar.
+      const buttons = items.slice(0, MAX_BUTTONS)
+        .filter((p) => p.id)
+        .map((p) => ({
+          row: [
+            { id: `nq:ok:${p.id}`, title: `✅ ${formatCOP(p.amount)} · ${payerLabel(p)}`.slice(0, 60) },
+            { id: `nq:no:${p.id}`, title: "🚫" },
+          ],
+        }));
+
+      if (buttons.length) {
+        await this.sendTelegram.execute({ kind: "buttons", to, text, buttons });
+      } else {
+        await this.sendTelegram.execute({ kind: "text", to, text });
+      }
     } catch (err) {
       this.log.error("[Nequi] No se pudo notificar por Telegram:", err?.message || err);
     }
@@ -127,7 +143,7 @@ export class ApprovePendingPaymentUseCase {
 
     const finalNote = (typeof note === "string" && note.trim())
       ? note.trim().slice(0, MAX_NOTE)
-      : `Nequi · ${pending.from || "pago recibido"}`.slice(0, MAX_NOTE);
+      : `Nequi · ${payerLabel(pending)}`.slice(0, MAX_NOTE);
 
     const payment = await this.addPayment.execute({
       carId,

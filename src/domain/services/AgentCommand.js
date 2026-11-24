@@ -61,6 +61,15 @@ export function formatCOP(value) {
   return "$" + String(Math.abs(n)).replace(/\B(?=(\d{3})+(?!\d))/g, ".");
 }
 
+/** Nombre mostrable de quien hizo un pago: el del correo o "Nequi" si es una dirección. */
+export function payerLabel({ payerName, from } = {}) {
+  const name = String(payerName || "").trim();
+  if (name) return name;
+  const sender = String(from || "").trim();
+  if (!sender || sender.includes("@")) return "Nequi";
+  return sender;
+}
+
 /** Compara dos teléfonos por dígitos, tolerando el indicativo de país. */
 export function samePhone(a, b) {
   const x = String(a || "").replace(/\D/g, "");
