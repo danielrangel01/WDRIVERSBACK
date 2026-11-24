@@ -585,10 +585,9 @@ export class WhatsAppAgentUseCase {
 
   // ── Conciliación de pagos Nequi ─────────────────────────────────────────
   /**
-   * Atiende los botones del aviso de pagos Nequi. `nq:ok:<id>` concilia el pago
-   * (asignándolo al carro cuyo conductor coincide con quien pagó; si no hay
-   * coincidencia, pregunta a qué carro) y `nq:no:<id>` lo descarta.
-   * Devuelve null cuando la acción no es de Nequi.
+   * Atiende los botones del aviso de pagos Nequi. `nq:ok:<id>` inicia la
+   * conciliación (siempre pregunta a qué carro asignarlo) y `nq:no:<id>` lo
+   * descarta. Devuelve null cuando la acción no es de Nequi.
    */
   async handleNequiAction(phone, action) {
     const m = /^nq:(ok|no):([0-9a-fA-F]{24})$/.exec(String(action || ""));
@@ -609,11 +608,6 @@ export class WhatsAppAgentUseCase {
     if (!pending) return { text: "ℹ️ Ese pago ya no está pendiente de conciliar." };
 
     const agenda = await this.getAgenda.execute();
-    const car = this.matchCarByPayer(pending.payerName, agenda);
-    if (car) {
-      if (this.sessions) await this.sessions.clear(agentKey(phone));
-      return { text: await this.approveNequi(pending, car) };
-    }
     return this.startNequiConciliation(phone, pending, agenda);
   }
 
@@ -714,35 +708,6 @@ export class WhatsAppAgentUseCase {
     }
     if (this.sessions) await this.sessions.clear(session.phone);
     return { text: await this.approveNequi(pending, car) };
-  }
-
-  /** Tokens comparables de un nombre (sin tildes, en mayúsculas, ≥3 letras). */
-  nameTokens(value) {
-    return String(value || "")
-      .normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "")
-      .toUpperCase()
-      .split(/[^A-Z0-9]+/)
-      .filter((t) => t.length >= 3);
-  }
-
-  /**
-   * Carro cuyo conductor coincide con quien pagó. Se exige coincidencia de 2+
-   * tokens y sin empate: ante la duda es mejor preguntar que asignar mal.
-   */
-  matchCarByPayer(payerName, agenda) {
-    const payer = new Set(this.nameTokens(payerName));
-    if (payer.size === 0) return null;
-    let best = null;
-    let bestScore = 0;
-    let tie = false;
-    for (const car of agenda.checklist || []) {
-      const shared = this.nameTokens(car.driverName).filter((t) => payer.has(t)).length;
-      if (shared === 0) continue;
-      if (shared > bestScore) { best = car; bestScore = shared; tie = false; }
-      else if (shared === bestScore) { tie = true; }
-    }
-    return bestScore >= 2 && !tie ? best : null;
   }
 
   // ── Resolución de carro ────────────────────────────────────────────────
@@ -853,7 +818,7 @@ export class WhatsAppAgentUseCase {
       "Ejemplo: _ABC123 taller_",
       "🚗 *detalle* — ficha de un carro: deuda, pagado hoy y estado.",
       "Ejemplo: _ABC123_",
-      "🏦 *Nequi* — cuando entra plata te aviso con el nombre de quien pagó. Toca ✅ para conciliarlo (si no reconozco el carro, te lo pregunto) o 🚫 para descartarlo.",
+      "🏦 *Nequi* — cuando entra plata te aviso con el nombre de quien pagó. Toca ✅ para conciliarlo con un carro (te pregunto cuál) o 🚫 para descartarlo.",
       "",
       "Puedes usar la *placa* o el *número* de la lista de *pendientes*.",
     ].join("\n");
