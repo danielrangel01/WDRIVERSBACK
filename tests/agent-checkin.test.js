@@ -143,12 +143,13 @@ describe("📤 Fallback a plantilla fuera de la ventana de 24 h", () => {
     expect(fallback.kind).toBe("template");
   });
 
-  it("proactiveClosePreviousDay usa la agenda de AYER y envía el cierre", async () => {
+  it("proactiveManagePreviousDay gestiona AYER (usa su agenda y arranca el check-in)", async () => {
     const { agent, deps } = makeAgent();
-    const r = await agent.proactiveClosePreviousDay(FROM, "whatsapp", "2026-11-22");
+    const r = await agent.proactiveManagePreviousDay(FROM, "whatsapp", "2026-11-23");
+    // La gestión de HOY (23) corresponde al día ANTERIOR (22).
     expect(deps.getAgenda.execute).toHaveBeenCalledWith({ date: "2026-11-22" });
-    expect(r.text).toContain("Cierre del día");
-    expect(deps.sendWhatsApp.execute.mock.calls.at(-1)[0].kind).toBe("text");
+    expect(r.text).toContain("Gestión del día anterior");
+    expect(deps.sendWhatsApp.execute.mock.calls.at(-1)[0].kind).toBe("buttons");
   });
 });
 
@@ -295,32 +296,34 @@ describe("🛡️ Blindaje del check-in (saltos y duplicados)", () => {
   });
 });
 
-describe("🔔 Insistencia de media tarde (nagCheckin)", () => {
+describe("🔔 Insistencia por la gestión de ayer (insistPreviousDay)", () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it("reenvía la plantilla de check-in cuando el admin no respondió", async () => {
+  it("re-pregunta el carro actual con tono creciente (nivel 2)", async () => {
     const { agent, deps, sessionRepo } = makeAgent();
-    // El check-in del mediodía quedó sin responder (index 0, sin respuestas).
-    sessionRepo.save({ phone: FROM, date: "2026-11-23", queue: [CAR_A, CAR_B], index: 0, answers: [], status: "active" });
-    const sent = await agent.nagCheckin(FROM);
+    // La gestión de AYER (22) quedó abierta tras el arranque de la mañana.
+    sessionRepo.save({ phone: FROM, date: "2026-11-22", queue: [CAR_A, CAR_B], index: 0, answers: [], status: "active" });
+    const sent = await agent.insistPreviousDay(FROM, "whatsapp", "2026-11-23", 2);
     expect(sent).toBe(true);
     const call = deps.sendWhatsApp.execute.mock.calls.at(-1)[0];
-    expect(call.kind).toBe("template");
-    expect(call.template.name).toBe("wdrivers_checkin_util");
+    expect(call.kind).toBe("buttons");
+    expect(call.text).toContain("Insistencia");
+    expect(call.text).toContain("ABC123");
   });
 
-  it("no molesta si el admin ya avanzó la revisión", async () => {
+  it("insiste aunque la revisión ya esté avanzada (re-pregunta el carro que falta)", async () => {
     const { agent, deps, sessionRepo } = makeAgent();
-    sessionRepo.save({ phone: FROM, date: "2026-11-23", queue: [CAR_A, CAR_B], index: 1, answers: [{ carId: CAR_A, action: "pay" }], status: "active" });
-    const sent = await agent.nagCheckin(FROM);
-    expect(sent).toBe(false);
-    expect(deps.sendWhatsApp.execute).not.toHaveBeenCalled();
+    sessionRepo.save({ phone: FROM, date: "2026-11-22", queue: [CAR_A, CAR_B], index: 1, answers: [{ carId: CAR_A, action: "pay" }], status: "active" });
+    const sent = await agent.insistPreviousDay(FROM, "whatsapp", "2026-11-23", 1);
+    expect(sent).toBe(true);
+    const call = deps.sendWhatsApp.execute.mock.calls.at(-1)[0];
+    expect(call.text).toContain("XYZ789");
+    expect(call.text).toContain("2/2");
   });
 
-  it("no insiste si ya no quedan carros pendientes", async () => {
-    const base = agendaFixture();
-    const { agent, deps } = makeAgent({ agenda: () => ({ ...base, pendingCars: [] }) });
-    const sent = await agent.nagCheckin(FROM);
+  it("no insiste si no hay una revisión abierta de ayer", async () => {
+    const { agent, deps } = makeAgent();
+    const sent = await agent.insistPreviousDay(FROM, "whatsapp", "2026-11-23", 1);
     expect(sent).toBe(false);
     expect(deps.sendWhatsApp.execute).not.toHaveBeenCalled();
   });

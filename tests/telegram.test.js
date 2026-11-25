@@ -169,14 +169,15 @@ describe("🤖 Agente por canal Telegram", () => {
     expect(deps.sendWhatsApp.execute).not.toHaveBeenCalled();
   });
 
-  it("nagCheckin reenvía el aviso con botones si no hubo avance", async () => {
+  it("insistPreviousDay reenvía con botones si la gestión de ayer no avanzó", async () => {
     const { agent, deps, sessionRepo } = makeTelegramAgent();
-    sessionRepo.save({ phone: `tg:${CHAT}`, date: "2026-11-23", queue: [CAR_A, CAR_B], index: 0, answers: [], status: "active" });
-    const sent = await agent.nagCheckin(CHAT, "telegram");
+    sessionRepo.save({ phone: `tg:${CHAT}`, date: "2026-11-22", queue: [CAR_A, CAR_B], index: 0, answers: [], status: "active" });
+    const sent = await agent.insistPreviousDay(CHAT, "telegram", "2026-11-23", 1);
     expect(sent).toBe(true);
     const call = deps.sendTelegram.execute.mock.calls.at(-1)[0];
     expect(call.kind).toBe("buttons");
-    expect(call.buttons.map((b) => b.id)).toContain("CHECKIN");
+    expect(call.text).toContain("Recordatorio");
+    expect(call.buttons.map((b) => b.id)).toContain(`pay:${CAR_A}`);
   });
 
   it("sendCheckinTemplate usa un mensaje con botones (no plantillas)", async () => {
@@ -211,20 +212,22 @@ describe("🗂️ Menú de opciones en los avisos (Telegram)", () => {
     expect(call.buttons.map((b) => b.id)).toEqual(MENU_IDS);
   });
 
-  it("el cierre del día anterior adjunta el menú (no en WhatsApp)", async () => {
+  it("arranca la gestión del día ANTERIOR por Telegram (usa la agenda de ayer)", async () => {
     const { agent, deps } = makeTelegramAgent();
-    const r = await agent.proactiveClosePreviousDay(CHAT, "telegram", "2026-11-22");
+    const r = await agent.proactiveManagePreviousDay(CHAT, "telegram", "2026-11-23");
     expect(deps.getAgenda.execute).toHaveBeenCalledWith({ date: "2026-11-22" });
-    expect(r.text).toContain("Cierre del día");
+    expect(r.text).toContain("Gestión del día anterior");
     const call = deps.sendTelegram.execute.mock.calls.at(-1)[0];
     expect(call.kind).toBe("buttons");
-    expect(call.buttons.map((b) => b.id)).toEqual(MENU_IDS);
+    expect(call.buttons.map((b) => b.id)).toEqual([`pay:${CAR_A}`, `off:${CAR_A}`, `ok:${CAR_A}`]);
   });
 
-  it("WhatsApp no usa botones en el cierre (solo texto)", async () => {
-    const { agent, deps } = makeTelegramAgent();
-    await agent.proactiveClosePreviousDay(CHAT, "whatsapp", "2026-11-22");
-    expect(deps.sendWhatsApp.execute.mock.calls.at(-1)[0].kind).toBe("text");
+  it("si ayer quedó al día, solo avisa (sin botones)", async () => {
+    const base = agendaFixture();
+    const { agent, deps } = makeTelegramAgent({ agenda: () => ({ ...base, pendingCars: [] }) });
+    const r = await agent.proactiveManagePreviousDay(CHAT, "telegram", "2026-11-23");
+    expect(r.text).toContain("estaba al día");
+    expect(deps.sendTelegram.execute.mock.calls.at(-1)[0].kind).toBe("text");
   });
 
   it("cuando no se entiende (saludo) responde con el menú completo", async () => {

@@ -42,6 +42,16 @@ const PAY_WORDS = /\b(si|ya|listo|ok|pago|pagado|abono|consign|transfer|deposit)
 // Respuesta que significa "sin novedad" en el check-in (equivale al botón).
 const OK_WORDS = /\b(sin novedad|novedad|nada|ninguna|ninguno|normal|todo bien|limpio)\b/;
 
+// Tono creciente de la insistencia por completar la gestión de AYER. El índice
+// coincide con el nivel (1 = mañana/media mañana … 4 = noche). El índice 0 no se usa.
+const INSIST_TONE = [
+  "",
+  "⏰ *Recordatorio:* aún queda pendiente la gestión de *AYER*.",
+  "🔔 *Insistencia:* la gestión de *AYER* sigue sin completar.",
+  "⚠️ *Atención:* llevas el día sin terminar la gestión de *AYER*. Regístralo ya.",
+  "🚨 *Última insistencia:* la gestión de *AYER* sigue pendiente. Complétala para no arrastrar el saldo.",
+];
+
 // Normaliza la clave de sesión (dígitos WhatsApp; "tg:<id>" Telegram).
 const agentKey = (v) => String(v || "").trim().replace(/[^a-zA-Z0-9:_-]/g, "");
 
@@ -386,15 +396,33 @@ export class WhatsAppAgentUseCase {
       : { text };
   }
 
+  /** Fecha (aaaa-mm-dd) del día ANTERIOR a `date` (o a hoy si no se indica). */
+  async previousDay(date) {
+    const base = date || (await this.getAgenda.execute()).date;
+    return addDays(base, -1);
+  }
+
   /**
-   * Envía el cierre del día ANTERIOR (D-1) como mensaje aparte. Se usa
-   * proactivamente en la mañana del día D: los conductores pueden pagar a
-   * cualquier hora, así que cerrar el día D la misma noche interferiría con
-   * pagos tardíos → el cierre de D se gestiona en la mañana de D+1.
+   * Arranca la GESTIÓN del día ANTERIOR por el chat (mensaje de la mañana). Los
+   * conductores pueden pagar a cualquier hora, así que cerrar el día D la misma
+   * noche interferiría con pagos tardíos → la gestión de D se hace en la mañana
+   * de D+1. Si ayer no quedó nada por revisar, solo avisa.
    */
-  async proactiveClosePreviousDay(phone, channel = "whatsapp", date) {
-    const agenda = await this.getAgenda.execute(date ? { date } : {});
-    const out = this.closeNotice(agenda, channel);
+  async proactiveManagePreviousDay(phone, channel = "whatsapp", date) {
+    const target = await this.previousDay(date);
+    const agenda = await this.getAgenda.execute({ date: target });
+    const pending = agenda.pendingCars || [];
+    if (pending.length === 0) {
+      const out = { text: `✅ *Gestión de ayer (${dmy(target)})*: estaba al día, no hay carros por revisar.` };
+      try {
+        await this.send(phone, out, channel);
+      } catch (_) {
+        // sin acciones que enviar: no hay plantilla que caiga.
+      }
+      return out;
+    }
+    const out = await this.startCheckin(this.sessionKey(channel, phone), agenda);
+    out.text = `🌅 *Gestión del día anterior* — ${dmy(target)}\n\n${out.text}`;
     try {
       await this.send(phone, out, channel);
     } catch (_) {
@@ -404,20 +432,25 @@ export class WhatsAppAgentUseCase {
   }
 
   /**
-   * Insistencia de media tarde: si el check-in del mediodía quedó SIN respuesta
-   * (nadie avanzó la revisión) y aún hay carros pendientes, reenvía el aviso de
-   * check-in (plantilla con botones en WhatsApp; mensaje con botones en
-   * Telegram). Devuelve true si se envió la insistencia.
+   * Insiste con tono creciente en completar la gestión de AYER mientras la
+   * revisión siga abierta (se re-pregunta el carro actual, sin perder el avance).
+   * Devuelve true si envió la insistencia.
    */
-  async nagCheckin(phone, channel = "whatsapp") {
-    const agenda = await this.getAgenda.execute();
-    const pending = agenda.pendingCars || [];
-    if (pending.length === 0) return false; // todo gestionado: no molestar
-    const session = this.sessions ? await this.sessions.get(this.sessionKey(channel, phone)) : null;
-    const today = session && session.date === agenda.date;
-    const progressed = today && ((session.answers || []).length > 0 || session.index > 0);
-    if (progressed) return false; // el admin ya está respondiendo
-    await this.sendCheckinTemplate(phone, channel);
+  async insistPreviousDay(phone, channel = "whatsapp", date, level = 1) {
+    if (!this.sessions) return false;
+    const target = await this.previousDay(date);
+    const key = this.sessionKey(channel, phone);
+    const session = await this.sessions.get(key);
+    // Solo insistimos si hay una revisión abierta de AYER sin terminar.
+    if (!session || session.status !== "active" || session.date !== target) return false;
+    const agenda = await this.getAgenda.execute({ date: target });
+    const out = await this.askCurrent(session, agenda);
+    out.text = `${INSIST_TONE[Math.min(Math.max(level, 1), INSIST_TONE.length - 1)]}\n\n${out.text}`;
+    try {
+      await this.send(phone, out, channel);
+    } catch (_) {
+      return false;
+    }
     return true;
   }
 

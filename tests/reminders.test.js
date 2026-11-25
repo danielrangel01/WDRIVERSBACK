@@ -36,6 +36,8 @@ describe("🔔 Motor de Recordatorios", () => {
     expect(kinds).toContain("collect");
     expect(kinds).toContain("overdue");
     expect(r.whatsappText).toContain("Buenos días");
+    // El saludo de la mañana incluye el resumen (cierre) del día ANTERIOR.
+    expect(r.whatsappText).toContain("Cierre del día");
   });
 
   it("media mañana: incluye aviso de cobrar hoy y el texto de 'aún estás a tiempo'", async () => {
@@ -46,6 +48,8 @@ describe("🔔 Motor de Recordatorios", () => {
     expect(r.counts.collect).toBe(1);
     expect(r.reminders.map((x) => x.kind)).toContain("collect");
     expect(r.whatsappText).toContain("Aún estás a tiempo");
+    // El resumen del día anterior solo va en el saludo de la mañana.
+    expect(r.whatsappText).not.toContain("Cierre del día");
   });
 
   it("tarde: última llamada reclama por nombre cada carro sin gestionar", async () => {

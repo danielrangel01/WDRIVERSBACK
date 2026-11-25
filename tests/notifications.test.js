@@ -131,17 +131,17 @@ describe("⏰ ReminderScheduler", () => {
     expect(dispatched[0].moment).toBe("morning");
   });
 
-  it("mañana: envía el cierre del día ANTERIOR como mensaje aparte", async () => {
+  it("mañana: arranca la gestión del día ANTERIOR como mensaje aparte", async () => {
     vi.setSystemTime(new Date("2024-06-30T14:30:00Z")); // 09:30 en Bogota
     const dispatch = vi.fn(async () => ({}));
-    const closePrev = vi.fn().mockResolvedValue({ text: "cierre" });
+    const managePrev = vi.fn().mockResolvedValue({ text: "gestión de ayer" });
 
     const stop = startReminderScheduler({
       useCase: { execute: async ({ date, moment }) => ({ date, moment, reminders: [], whatsappText: "hi" }) },
       dispatcher: { channels: { whatsapp: true }, dispatch },
       settingsRepository: { get: async () => ({ remindersEnabled: true, morningHour: 9, eveningHour: 20, adminPhone: "573001112233" }) },
       reminderLogRepository: { exists: async () => false, record: async () => {} },
-      agent: { proactiveClosePreviousDay: closePrev },
+      agent: { proactiveManagePreviousDay: managePrev },
       timeZone: "America/Bogota",
       everyMs: 100000,
       initialDelayMs: 1,
@@ -151,10 +151,10 @@ describe("⏰ ReminderScheduler", () => {
     await vi.advanceTimersByTimeAsync(10);
     stop();
 
-    expect(closePrev).toHaveBeenCalledTimes(1);
-    // Se pide la agenda del día ANTERIOR (30 → 29 de junio).
-    expect(closePrev.mock.calls[0][2]).toBe("2024-06-29");
-    // El cierre de ayer NO se manda por el dispatcher (correo/push).
+    // El agente arranca la gestión de AYER (recibe la fecha de HOY; resta el día).
+    expect(managePrev).toHaveBeenCalledTimes(1);
+    expect(managePrev.mock.calls[0].slice(0, 3)).toEqual(["573001112233", "whatsapp", "2024-06-30"]);
+    // La gestión de ayer NO se manda por el dispatcher (correo/push).
     expect(dispatch).toHaveBeenCalledTimes(1);
     expect(dispatch.mock.calls[0][0].moment).toBe("morning");
   });
@@ -206,17 +206,17 @@ describe("⏰ ReminderScheduler", () => {
     expect(dispatched[0].moment).toBe("lateMorning");
   });
 
-  it("insistencia de la tarde: llama a agent.nagCheckin sin enviar recordatorio general", async () => {
+  it("insistencia de la tarde: llama a agent.insistPreviousDay (nivel 3) sin recordatorio general", async () => {
     vi.setSystemTime(new Date("2024-06-30T21:05:00Z")); // 16:05 en Bogota
     const dispatched = [];
-    const nag = vi.fn().mockResolvedValue(true);
+    const insist = vi.fn().mockResolvedValue(true);
 
     const stop = startReminderScheduler({
       useCase: { execute: async () => { throw new Error("no debe usarse en la insistencia"); } },
       dispatcher: { channels: { whatsapp: true }, dispatch: async (d) => { dispatched.push(d); return {}; } },
       settingsRepository: { get: async () => ({ remindersEnabled: true, morningHour: 8, lateMorningHour: 11, middayHour: 14, afternoonHour: 16, eveningHour: 20, adminPhone: "573001112233" }) },
       reminderLogRepository: { exists: async () => false, record: async () => {} },
-      agent: { nagCheckin: nag },
+      agent: { insistPreviousDay: insist },
       timeZone: "America/Bogota",
       everyMs: 100000,
       initialDelayMs: 1,
@@ -227,7 +227,34 @@ describe("⏰ ReminderScheduler", () => {
     stop();
 
     expect(dispatched).toHaveLength(0);
-    expect(nag).toHaveBeenCalledWith("573001112233", "whatsapp");
+    expect(insist).toHaveBeenCalledWith("573001112233", "whatsapp", "2024-06-30", 3);
+  });
+
+  it("noche: insiste en la gestión de ayer con el nivel más alto (4)", async () => {
+    vi.setSystemTime(new Date("2024-07-01T01:30:00Z")); // 20:30 del 30 en Bogota
+    const dispatch = vi.fn(async () => ({}));
+    const insist = vi.fn().mockResolvedValue(true);
+
+    const stop = startReminderScheduler({
+      useCase: { execute: async ({ date, moment }) => ({ date, moment, reminders: [], whatsappText: "hi" }) },
+      dispatcher: { channels: { whatsapp: true }, dispatch },
+      settingsRepository: { get: async () => ({ remindersEnabled: true, morningHour: 8, eveningHour: 20, adminPhone: "573001112233" }) },
+      reminderLogRepository: { exists: async () => false, record: async () => {} },
+      agent: { insistPreviousDay: insist },
+      timeZone: "America/Bogota",
+      everyMs: 100000,
+      initialDelayMs: 1,
+      log: { log() {}, error() {} },
+    });
+
+    await vi.advanceTimersByTimeAsync(10);
+    stop();
+
+    // El general sale (correo/push) pero el chat lo maneja el agente.
+    expect(dispatch).toHaveBeenCalledTimes(1);
+    expect(dispatch.mock.calls[0][0].moment).toBe("evening");
+    expect(dispatch.mock.calls[0][0].skipWhatsApp).toBe(true);
+    expect(insist).toHaveBeenCalledWith("573001112233", "whatsapp", "2024-06-30", 4);
   });
 
   it("no reenvía si ya existe registro para ese día/momento (idempotencia)", async () => {

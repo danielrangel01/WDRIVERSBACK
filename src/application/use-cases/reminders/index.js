@@ -1,7 +1,17 @@
+import { buildDayCloseReport } from "../../../domain/services/DayCloseReport.js";
+
 const cop = (n) =>
   new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", maximumFractionDigits: 0 }).format(Number(n) || 0);
 
 const MOMENTS = ["morning", "lateMorning", "midday", "evening"];
+
+// Suma (o resta, con n negativo) días a una fecha YYYY-MM-DD (aritmética UTC pura).
+const addDays = (date, n) => {
+  const [y, m, d] = String(date || "").split("-").map(Number);
+  const dt = new Date(Date.UTC(y || 1970, (m || 1) - 1, d || 1));
+  dt.setUTCDate(dt.getUTCDate() + n);
+  return dt.toISOString().slice(0, 10);
+};
 
 /**
  * Motor de Recordatorios.
@@ -125,6 +135,18 @@ export class GetRemindersUseCase {
       add({ id: "ok", kind: "ok", level: "ok", icon: "✅", title: "Todo al día", body: "No hay pendientes urgentes." });
     }
 
+    // El saludo de la mañana resume TAMBIÉN el día ANTERIOR (cierre + novedades):
+    // los conductores pueden pagar tarde, así que el día D se cierra en D+1.
+    let prevClose = "";
+    if (m === "morning") {
+      try {
+        const prev = await this.agenda.execute({ date: addDays(agenda.date, -1) });
+        prevClose = buildDayCloseReport(prev);
+      } catch (_) {
+        prevClose = "";
+      }
+    }
+
     const counts = {
       collect: s.collectTodayCount,
       collectAmount: s.collectTodayAmount,
@@ -149,11 +171,11 @@ export class GetRemindersUseCase {
       generatedAt: new Date().toISOString(),
       counts,
       reminders,
-      whatsappText: this.buildWhatsAppText(agenda, m),
+      whatsappText: this.buildWhatsAppText(agenda, m, prevClose),
     };
   }
 
-  buildWhatsAppText(agenda, m) {
+  buildWhatsAppText(agenda, m, prevClose = "") {
     const s = agenda.summary;
     const [y, mo, d] = agenda.date.split("-");
     const dl = `${d}/${mo}/${y}`;
@@ -192,6 +214,8 @@ export class GetRemindersUseCase {
     if (s.nequiPendingCount > 0) t += `🏦 Nequi por conciliar: ${s.nequiPendingCount} — ${cop(s.nequiPendingAmount)}\n`;
     if (s.refinanceCount > 0) t += `🔁 Refinanciaciones: ${s.refinanceCount} — ${cop(s.refinanceRemaining)}\n`;
     t += `\nDeuda total flota: ${cop(s.fleetDebt)}\n_W Drivers_`;
+    // Resumen del día anterior (cierre + novedades), solo en el saludo de la mañana.
+    if (m === "morning" && prevClose) t += `\n\n────────────\n${prevClose}`;
     return t;
   }
 }

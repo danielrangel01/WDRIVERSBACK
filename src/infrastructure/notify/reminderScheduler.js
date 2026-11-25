@@ -18,32 +18,21 @@ const localParts = (timeZone) => {
   }
 };
 
-// Resta un día a una fecha YYYY-MM-DD (aritmética sobre el string, sin zona).
-const prevDate = (dateStr) => {
-  const [y, m, d] = String(dateStr || "").split("-").map(Number);
-  const dt = new Date(Date.UTC(y || 1970, (m || 1) - 1, d || 1));
-  dt.setUTCDate(dt.getUTCDate() - 1);
-  return dt.toISOString().slice(0, 10);
-};
-
-// Dispara el check-in (mediodía), la insistencia (media tarde) o el cierre del
-// día ANTERIOR (mañana) del agente por el canal de chat activo (WhatsApp o
-// Telegram). Devuelve true si se envió algo. Tolerante a fallos: fuera de la
+// Dispara la gestión del día ANTERIOR por el chat. En la mañana se ARRANCA la
+// revisión de ayer; en los momentos siguientes se INSISTE (tono creciente) hasta
+// completarla. Devuelve true si se envió algo. Tolerante a fallos: fuera de la
 // ventana de 24 h Meta rechaza los botones y simplemente se registra el error
 // (el recordatorio con plantilla ya salió).
 async function runAgentMoment(agent, target, moment, log, channel = "whatsapp", date) {
   if (!agent || !target) return false;
   try {
-    if (moment === "midday" && typeof agent.proactiveCheckin === "function") {
-      await agent.proactiveCheckin(target, channel);
+    if (moment === "morningClose" && typeof agent.proactiveManagePreviousDay === "function") {
+      await agent.proactiveManagePreviousDay(target, channel, date);
       return true;
     }
-    if (moment === "afternoon" && typeof agent.nagCheckin === "function") {
-      return (await agent.nagCheckin(target, channel)) === true;
-    }
-    if (moment === "morningClose" && typeof agent.proactiveClosePreviousDay === "function") {
-      await agent.proactiveClosePreviousDay(target, channel, date ? prevDate(date) : undefined);
-      return true;
+    const level = { lateMorning: 1, midday: 2, afternoon: 3, evening: 4 }[moment];
+    if (level && typeof agent.insistPreviousDay === "function") {
+      return (await agent.insistPreviousDay(target, channel, date, level)) === true;
     }
   } catch (err) {
     log.error("[Agent] Error en", moment, err && err.message ? err.message : err);
@@ -75,10 +64,9 @@ export function startReminderScheduler({
 
       const { date, hour } = localParts(timeZone);
       const slots = [];
-      // En la mañana van DOS mensajes: el recordatorio de gestión de HOY y, como
-      // mensaje aparte, el cierre del día ANTERIOR. Los conductores pueden pagar
-      // a cualquier hora, así que cerrar el día D la misma noche interferiría con
-      // pagos tardíos: el cierre de D se gestiona en la mañana de D+1.
+      // En la mañana van DOS mensajes: el saludo con métricas (recordatorio de
+      // HOY) y, aparte, el arranque de la GESTIÓN de AYER. Los conductores pueden
+      // pagar a cualquier hora, así que el día D se gestiona en la mañana de D+1.
       if (hour === settings.morningHour) slots.push("morning", "morningClose");
       if (settings.lateMorningHour !== undefined && hour === settings.lateMorningHour) slots.push("lateMorning");
       if (settings.middayHour !== undefined && hour === settings.middayHour) slots.push("midday");
@@ -98,33 +86,35 @@ export function startReminderScheduler({
         const key = `${date}:${moment}`;
         if (reminderLogRepository && (await reminderLogRepository.exists(key))) continue;
 
-        // Cierre del día ANTERIOR: mensaje aparte en la mañana, solo por el canal
-        // de chat (ni correo ni push). No toca la sesión de check-in de hoy.
+        // Arranque de la gestión de AYER: mensaje aparte en la mañana, solo por
+        // el canal de chat (ni correo ni push). No toca la sesión de HOY.
         if (moment === "morningClose") {
           const sent = await runAgentMoment(agent, target, moment, log, channel, date);
           if (reminderLogRepository) await reminderLogRepository.record(key, { date, moment, channels: { [channel]: sent } });
-          log.log(`[Reminders] ${moment} ${date} cierre de ayer →`, JSON.stringify({ [channel]: sent }));
+          log.log(`[Reminders] ${moment} ${date} gestión de ayer →`, JSON.stringify({ [channel]: sent }));
           continue;
         }
 
         // Insistencia de media tarde: no hay recordatorio general (ni correo ni
-        // push); solo se re-avisa por el canal de chat si el check-in quedó a medias.
+        // push); solo se re-avisa por el canal de chat si la gestión de ayer
+        // quedó a medias, con tono creciente.
         if (moment === "afternoon") {
-          const nagged = await runAgentMoment(agent, target, moment, log, channel);
+          const nagged = await runAgentMoment(agent, target, moment, log, channel, date);
           if (reminderLogRepository) await reminderLogRepository.record(key, { date, moment, channels: { [channel]: nagged } });
           log.log(`[Reminders] ${moment} ${date} insistencia →`, JSON.stringify({ [channel]: nagged }));
           continue;
         }
 
         const data = await useCase.execute({ date, moment });
-        // En mediodía el agente se encarga del canal de chat (check-in paso a
-        // paso), así que el dispatcher solo envía correo y push para no duplicar.
-        // La tarde ya NO cierra: solo avisa (última llamada) por todos los canales.
-        const agentHandlesChat = !!agent && !!channelsEnabled[channel] && moment === "midday";
+        // Desde media mañana el canal de chat lo maneja el agente (insiste en la
+        // gestión de AYER con tono creciente), así que el dispatcher solo envía
+        // correo y push para no duplicar. Niveles: media mañana 1, mediodía 2,
+        // noche 4 (la tarde 3 tiene su propia rama arriba).
+        const insistLevel = { lateMorning: 1, midday: 2, evening: 4 }[moment];
+        const agentHandlesChat = !!agent && !!channelsEnabled[channel] && !!insistLevel;
         const channels = await dispatcher.dispatch({ ...data, settings, skipWhatsApp: agentHandlesChat });
         if (reminderLogRepository) await reminderLogRepository.record(key, { date, moment, channels });
         log.log(`[Reminders] ${moment} ${date} enviado →`, JSON.stringify(channels));
-        // Check-in proactivo (mediodía).
         if (agentHandlesChat) await runAgentMoment(agent, target, moment, log, channel, date);
       }
     } catch (err) {
