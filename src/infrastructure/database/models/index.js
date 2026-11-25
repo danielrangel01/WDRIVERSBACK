@@ -14,6 +14,9 @@ const carSchema = new Schema(
   {
     plate: { type: String, required: true, unique: true, uppercase: true, trim: true },
     name: { type: String, default: "" },
+    alias: { type: String, default: "" },
+    brand: { type: String, default: "" },
+    type: { type: String, default: "" },
     rate: { type: Number, default: 80000 },
     startDate: { type: String, default: null },
     active: { type: Boolean, default: true },

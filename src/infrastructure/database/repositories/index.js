@@ -42,8 +42,8 @@ export class MongoUserRepository extends IUserRepository {
 // ── Cars ──────────────────────────────────────────────────────────────────────
 function toCar(d) {
   return new Car({
-    id: id(d), plate: d.plate, name: d.name, rate: d.rate,
-    startDate: d.startDate, active: d.active, createdAt: d.createdAt,
+    id: id(d), plate: d.plate, name: d.name, alias: d.alias, brand: d.brand, type: d.type,
+    rate: d.rate, startDate: d.startDate, active: d.active, createdAt: d.createdAt,
   });
 }
 
@@ -63,15 +63,18 @@ export class MongoCarRepository extends ICarRepository {
   }
   async create(car) {
     const d = await CarModel.create({
-      plate: car.plate, name: car.name, rate: car.rate,
-      startDate: car.startDate, active: car.active,
+      plate: car.plate, name: car.name, alias: car.alias, brand: car.brand, type: car.type,
+      rate: car.rate, startDate: car.startDate, active: car.active,
     });
     return toCar(d);
   }
   async update(car) {
     const d = await CarModel.findByIdAndUpdate(
       car.id,
-      { plate: car.plate, name: car.name, rate: car.rate, startDate: car.startDate, active: car.active },
+      {
+        plate: car.plate, name: car.name, alias: car.alias, brand: car.brand, type: car.type,
+        rate: car.rate, startDate: car.startDate, active: car.active,
+      },
       { new: true }
     );
     return toCar(d);

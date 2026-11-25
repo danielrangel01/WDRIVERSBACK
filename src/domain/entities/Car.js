@@ -6,10 +6,13 @@ const MAX_NOTE = config.security.noteMaxLength;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 export class Car {
-  constructor({ id, plate, name = "", rate = 80000, startDate = null, active = true, createdAt = null }) {
+  constructor({ id, plate, name = "", alias = "", brand = "", type = "", rate = 80000, startDate = null, active = true, createdAt = null }) {
     this.id = id;
     this.plate = Car.normalizePlate(plate);
     this.name = (name || "").trim().slice(0, MAX_NAME);
+    this.alias = (alias || "").trim().slice(0, MAX_NAME);
+    this.brand = (brand || "").trim().slice(0, MAX_NAME);
+    this.type = (type || "").trim().slice(0, MAX_NAME);
     this.rate = Number(rate) || 0;
     this.startDate = startDate || null;
     this.active = !!active;
@@ -52,6 +55,9 @@ export class Car {
       id: this.id,
       plate: this.plate,
       name: this.name,
+      alias: this.alias,
+      brand: this.brand,
+      type: this.type,
       rate: this.rate,
       startDate: this.startDate,
       active: this.active,

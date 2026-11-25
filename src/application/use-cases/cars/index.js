@@ -18,13 +18,16 @@ export class AddCarUseCase {
   constructor({ carRepository }) {
     this.cars = carRepository;
   }
-  async execute({ plate, name, rate, startDate }) {
-    const car = new Car({ plate, name, rate, startDate, active: true }).validate();
+  async execute({ plate, name, alias, brand, type, rate, startDate }) {
+    const car = new Car({ plate, name, alias, brand, type, rate, startDate, active: true }).validate();
     const existing = await this.cars.findByPlate(car.plate);
     if (existing) {
       if (!existing.active) {
         existing.active = true;
         existing.name = car.name || existing.name;
+        existing.alias = car.alias || existing.alias;
+        existing.brand = car.brand || existing.brand;
+        existing.type = car.type || existing.type;
         existing.rate = car.rate;
         existing.startDate = car.startDate;
         existing.validate();
@@ -40,7 +43,7 @@ export class UpdateCarUseCase {
   constructor({ carRepository }) {
     this.cars = carRepository;
   }
-  async execute({ id, plate, name, rate, startDate }) {
+  async execute({ id, plate, name, alias, brand, type, rate, startDate }) {
     if (!validOid(id)) throw new ValidationError("Identificador de carro inválido");
     const car = await this.cars.findById(id);
     if (!car) throw new NotFoundError("Carro no encontrado");
@@ -56,6 +59,9 @@ export class UpdateCarUseCase {
       }
     }
     if (name !== undefined) car.name = String(name || "").trim().slice(0, 100);
+    if (alias !== undefined) car.alias = String(alias || "").trim().slice(0, 100);
+    if (brand !== undefined) car.brand = String(brand || "").trim().slice(0, 100);
+    if (type !== undefined) car.type = String(type || "").trim().slice(0, 100);
     if (rate !== undefined) {
       const r = Number(rate);
       if (isNaN(r)) throw new ValidationError("Tarifa inválida");

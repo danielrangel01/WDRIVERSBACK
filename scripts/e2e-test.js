@@ -101,15 +101,37 @@ async function main() {
   // ── 3. Carros ──────────────────────────────────────────────────────────────
   console.log("\n▸ 3. Carros (CRUD + detalle de deuda)");
   const plate = "E2E" + String(Date.now()).slice(-4);
-  const carRes = await api("POST", "/api/cars", { body: { plate, name: "E2E Test", rate: 50000, startDate: today() } });
+  const carRes = await api("POST", "/api/cars", { body: { plate, name: "E2E Test", alias: "E2E Alias", brand: "E2E Brand", type: "E2E Type", rate: 50000, startDate: today() } });
   const carId = carRes.json?.id;
   check("Crear carro (201)", carRes.status === 201 && !!carId, `placa ${plate}`);
+  check("Crear carro persiste alias/brand/type",
+    carRes.json?.alias === "E2E Alias" && carRes.json?.brand === "E2E Brand" && carRes.json?.type === "E2E Type",
+    `→ ${carRes.json?.alias}/${carRes.json?.brand}/${carRes.json?.type}`);
 
   const dup = await api("POST", "/api/cars", { body: { plate, name: "E2E Dup", rate: 1, startDate: today() } });
   check("Placa duplicada activa es rechazada (409)", dup.status === 409, `→ ${dup.status}`);
 
   const cars = await api("GET", "/api/cars");
   check("Listar carros incluye el creado", Array.isArray(cars.json) && cars.json.some((c) => c.id === carId));
+
+  // Regresión: editar TODOS los campos debe persistir y reaparecer al releer.
+  const upd = await api("PUT", `/api/cars/${carId}`, {
+    body: { plate, name: "E2E Editado", alias: "El Azul", brand: "Chevrolet", type: "Sedán", rate: 60000, startDate: today() },
+  });
+  check("Editar carro (200)", upd.status === 200, `→ ${upd.status}`);
+  check("Edición persiste nombre", upd.json?.name === "E2E Editado", `→ ${upd.json?.name}`);
+  check("Edición persiste alias", upd.json?.alias === "El Azul", `→ ${upd.json?.alias}`);
+  check("Edición persiste brand", upd.json?.brand === "Chevrolet", `→ ${upd.json?.brand}`);
+  check("Edición persiste type", upd.json?.type === "Sedán", `→ ${upd.json?.type}`);
+  check("Edición persiste tarifa", Number(upd.json?.rate) === 60000, `→ ${upd.json?.rate}`);
+
+  // Lo que realmente consume la app para pintar el formulario: /api/data
+  const reread = await api("GET", "/api/data");
+  const carData = (reread.json?.cars || []).find((c) => c.id === carId);
+  check("Al reabrir, /api/data trae el nombre editado", carData?.name === "E2E Editado", `→ ${carData?.name}`);
+  check("Al reabrir, /api/data trae alias/brand/type editados",
+    carData?.alias === "El Azul" && carData?.brand === "Chevrolet" && carData?.type === "Sedán",
+    `→ ${carData?.alias}/${carData?.brand}/${carData?.type}`);
 
   const detail = await api("GET", `/api/cars/${carId}/debt-detail`);
   check("Detalle de deuda responde 200", detail.status === 200, `→ ${detail.status}`);

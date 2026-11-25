@@ -98,6 +98,36 @@ describe("🚀 Use Cases: Cars — flujos principales + edge cases", () => {
     expect(r.ok).toBe(true);
     expect((await repo.findById(OID)).active).toBe(false);
   });
+
+  it("AddCar: guarda alias, brand y type", async () => {
+    const repo = makeCarRepo();
+    const uc = new AddCarUseCase({ carRepository: repo });
+    const car = await uc.execute({ plate: "XYZ789", name: "Taxi", alias: "El Azul", brand: "Chevrolet", type: "Sedán", rate: 80000 });
+    expect(car.alias).toBe("El Azul");
+    expect(car.brand).toBe("Chevrolet");
+    expect(car.type).toBe("Sedán");
+    expect(car.toJSON().alias).toBe("El Azul");
+    expect(car.toJSON().brand).toBe("Chevrolet");
+    expect(car.toJSON().type).toBe("Sedán");
+  });
+
+  it("UpdateCar: persiste alias, brand y type editados", async () => {
+    const c = new Car({ id: "000000000000000000000003", plate: "ABC123", name: "viejo", alias: "Viejo", brand: "X", type: "Y" });
+    const repo = makeCarRepo([c]);
+    const uc = new UpdateCarUseCase({ carRepository: repo });
+    const updated = await uc.execute({ id: c.id, plate: "ABC123", name: "nuevo", alias: "El Azul", brand: "Chevrolet", type: "Sedán", rate: 90000, startDate: "2024-05-01" });
+    expect(updated.name).toBe("nuevo");
+    expect(updated.alias).toBe("El Azul");
+    expect(updated.brand).toBe("Chevrolet");
+    expect(updated.type).toBe("Sedán");
+    expect(updated.rate).toBe(90000);
+    expect(updated.startDate).toBe("2024-05-01");
+    expect(repo.update).toHaveBeenCalled();
+    const persisted = await repo.findById(c.id);
+    expect(persisted.alias).toBe("El Azul");
+    expect(persisted.brand).toBe("Chevrolet");
+    expect(persisted.type).toBe("Sedán");
+  });
 });
 
 describe("🚀 Use Cases: Payments / Expenses / Documents", () => {
