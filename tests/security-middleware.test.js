@@ -87,6 +87,19 @@ describe("🛡️ Auth Middleware", () => {
     mw(req, mockRes(), next);
     expect(next.mock.calls[0][0]).toBeInstanceOf(UnauthorizedError);
   });
+
+  it("un refresh token no se acepta como token de acceso", () => {
+    const mw = makeAuthMiddleware(tokenService);
+    const next = vi.fn();
+    const req = mockReq({ headers: { authorization: "Bearer aaa.bbb.ccc" } });
+    tokenService.verify.mockReturnValueOnce({
+      id: "1".repeat(24),
+      username: "admin",
+      tokenUse: "refresh",
+    });
+    mw(req, mockRes(), next);
+    expect(next.mock.calls[0][0]).toBeInstanceOf(UnauthorizedError);
+  });
 });
 
 describe("🛡️ Error Handler: tipos de error mapeados a HTTP correcto", () => {

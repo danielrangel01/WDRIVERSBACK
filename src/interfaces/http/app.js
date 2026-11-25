@@ -123,6 +123,7 @@ function buildAuthRoutes(controllers, authMiddleware, loginLimiter) {
   const { Router } = express;
   const auth = Router();
   auth.post("/login", loginLimiter, controllers.login);
+  auth.post("/refresh", loginLimiter, controllers.refreshToken);
   auth.post("/change", authMiddleware, controllers.changeCredentials);
   auth.get("/me", authMiddleware, controllers.me);
   return auth;

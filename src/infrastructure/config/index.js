@@ -189,6 +189,7 @@ export const config = {
   mongoUri,
   jwtSecret: jwtSecret || "dev_secret_change_me_ONLY_FOR_LOCAL_DEV_never_use_in_prod_0123456789",
   jwtExpiresIn: process.env.JWT_EXPIRES_IN || "12h",
+  jwtRefreshExpiresIn: process.env.JWT_REFRESH_EXPIRES_IN || "90d",
   clientOrigin: (process.env.CLIENT_ORIGIN || "http://localhost:5173")
     .split(",")
     .map((s) => s.trim())

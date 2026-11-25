@@ -16,7 +16,7 @@ import { WhatsAppNotifier } from "../../infrastructure/notify/WhatsAppNotifier.j
 import { TelegramNotifier } from "../../infrastructure/notify/TelegramNotifier.js";
 import { ReminderDispatcher } from "../../infrastructure/notify/ReminderDispatcher.js";
 
-import { LoginUseCase, ChangeCredentialsUseCase } from "../../application/use-cases/auth/index.js";
+import { LoginUseCase, RefreshTokenUseCase, ChangeCredentialsUseCase } from "../../application/use-cases/auth/index.js";
 import {
   ListCarsUseCase, AddCarUseCase, UpdateCarUseCase, DeactivateCarUseCase, ReactivateCarUseCase,
   GetCarDebtDetailUseCase,
@@ -61,7 +61,7 @@ export function buildContainer() {
   const agentSessionRepository = new MongoAgentSessionRepository();
 
   const passwordHasher = new BcryptHasher();
-  const tokenService = new JwtTokenService(config.jwtSecret, config.jwtExpiresIn);
+  const tokenService = new JwtTokenService(config.jwtSecret, config.jwtExpiresIn, config.jwtRefreshExpiresIn);
   const mailReader = new NequiMailReader(config.nequi);
 
   // Notificadores (correo SMTP + Web Push). Quedan inactivos si faltan credenciales.
@@ -130,6 +130,7 @@ export function buildContainer() {
 
   const useCases = {
     login: new LoginUseCase({ userRepository, passwordHasher, tokenService }),
+    refreshToken: new RefreshTokenUseCase({ userRepository, tokenService }),
     changeCredentials: new ChangeCredentialsUseCase({ userRepository, passwordHasher }),
     listCars: new ListCarsUseCase({ carRepository }),
     addCar: new AddCarUseCase({ carRepository }),

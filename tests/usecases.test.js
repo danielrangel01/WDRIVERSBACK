@@ -8,7 +8,7 @@ import { AddExpenseUseCase, DeleteExpenseUseCase } from "../src/application/use-
 import { ToggleOffDayUseCase, BulkOffDayUseCase, ClearOffDayUseCase } from "../src/application/use-cases/offdays/index.js";
 import { CreateRefinanceUseCase, PayRefinanceUseCase, CancelRefinanceUseCase } from "../src/application/use-cases/refinances/index.js";
 import { UpdateSettingsUseCase, GetSettingsUseCase } from "../src/application/use-cases/settings/index.js";
-import { ChangeCredentialsUseCase, LoginUseCase } from "../src/application/use-cases/auth/index.js";
+import { ChangeCredentialsUseCase, LoginUseCase, RefreshTokenUseCase } from "../src/application/use-cases/auth/index.js";
 import { ResetDataUseCase } from "../src/application/use-cases/data/index.js";
 import { User, Settings } from "../src/domain/entities/index.js";
 
@@ -326,12 +326,14 @@ describe("🚀 Use Cases: Auth — Login + ChangeCredentials", () => {
     };
     const tokenService = {
       sign: vi.fn((p) => `TOKEN_${JSON.stringify(p)}`),
+      signRefresh: vi.fn((p) => `REFRESH_${JSON.stringify(p)}`),
       verify: vi.fn((t) => JSON.parse(t.replace("TOKEN_", ""))),
+      verifyRefresh: vi.fn((t) => JSON.parse(t.replace("REFRESH_", ""))),
     };
     return { hasher, userRepo, tokenService, u };
   }
 
-  it("Login: credenciales correctas → retorna token + username", async () => {
+  it("Login: credenciales correctas → retorna access token, refresh token y username", async () => {
     const s = await setup();
     const uc = new LoginUseCase({
       userRepository: s.userRepo, passwordHasher: s.hasher, tokenService: s.tokenService,
@@ -340,6 +342,37 @@ describe("🚀 Use Cases: Auth — Login + ChangeCredentials", () => {
     expect(r.username).toBe("admin");
     expect(typeof r.token).toBe("string");
     expect(r.token.startsWith("TOKEN_")).toBe(true);
+    expect(r.refreshToken.startsWith("REFRESH_")).toBe(true);
+  });
+
+  it("RefreshToken: renueva ambos tokens para una cuenta existente", async () => {
+    const s = await setup();
+    const uc = new RefreshTokenUseCase({
+      userRepository: s.userRepo, tokenService: s.tokenService,
+    });
+    const r = await uc.execute({ refreshToken: `REFRESH_${JSON.stringify({ id: OID })}` });
+    expect(r.username).toBe("admin");
+    expect(r.token.startsWith("TOKEN_")).toBe(true);
+    expect(r.refreshToken.startsWith("REFRESH_")).toBe(true);
+    expect(s.userRepo.findById).toHaveBeenCalledWith(OID);
+  });
+
+  it("RefreshToken: permite migrar un access token válido de una sesión anterior", async () => {
+    const s = await setup();
+    const uc = new RefreshTokenUseCase({
+      userRepository: s.userRepo, tokenService: s.tokenService,
+    });
+    const r = await uc.execute({ accessToken: `TOKEN_${JSON.stringify({ id: OID })}` });
+    expect(r.refreshToken.startsWith("REFRESH_")).toBe(true);
+  });
+
+  it("RefreshToken: rechaza una cuenta inexistente", async () => {
+    const s = await setup();
+    s.tokenService.verifyRefresh.mockReturnValueOnce({ id: "9".repeat(24), tokenUse: "refresh" });
+    const uc = new RefreshTokenUseCase({
+      userRepository: s.userRepo, tokenService: s.tokenService,
+    });
+    await expect(uc.execute({ refreshToken: "REFRESH_invalid" })).rejects.toThrow(/ya no está disponible/);
   });
 
   it("Login: usuario no existe → UnauthorizedError (y corre compare para timing attack)", async () => {

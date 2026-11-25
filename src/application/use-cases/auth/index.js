@@ -37,8 +37,56 @@ export class LoginUseCase {
     const ok = await this.hasher.compare(String(password), user.passwordHash);
     if (!ok) throw new UnauthorizedError("Usuario o contraseña incorrectos");
 
-    const token = this.tokens.sign({ id: user.id, username: user.username });
-    return { token, username: user.username };
+    return {
+      token: this.tokens.sign({ id: user.id, username: user.username }),
+      refreshToken: this.tokens.signRefresh({ id: user.id, username: user.username }),
+      username: user.username,
+    };
+  }
+}
+
+export class RefreshTokenUseCase {
+  constructor({ userRepository, tokenService }) {
+    this.users = userRepository;
+    this.tokens = tokenService;
+  }
+
+  async execute({ refreshToken, accessToken }) {
+    const usingRefreshToken = typeof refreshToken === "string" && !!refreshToken.trim();
+    const suppliedToken = usingRefreshToken
+      ? refreshToken
+      : typeof accessToken === "string" && accessToken.trim() ? accessToken : null;
+    if (!suppliedToken) {
+      throw new UnauthorizedError("Sesión expirada. Inicia sesión nuevamente");
+    }
+
+    let payload;
+    try {
+      payload = usingRefreshToken
+        ? this.tokens.verifyRefresh(suppliedToken)
+        : this.tokens.verify(suppliedToken);
+    } catch {
+      throw new UnauthorizedError("Sesión expirada. Inicia sesión nuevamente");
+    }
+
+    if (
+      !payload ||
+      typeof payload.id !== "string" ||
+      (usingRefreshToken && payload.tokenUse === "access") ||
+      (!usingRefreshToken && payload.tokenUse === "refresh")
+    ) {
+      throw new UnauthorizedError("Token de renovación inválido");
+    }
+
+    const user = await this.users.findById(payload.id);
+    if (!user) throw new UnauthorizedError("La cuenta ya no está disponible");
+
+    const identity = { id: user.id, username: user.username };
+    return {
+      token: this.tokens.sign(identity),
+      refreshToken: this.tokens.signRefresh(identity),
+      username: user.username,
+    };
   }
 }
 

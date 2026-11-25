@@ -6,6 +6,7 @@ export function buildRoutes(controllers, authMiddleware) {
   // ── Auth (login es público) ───────────────────────────────────────────────
   const auth = Router();
   auth.post("/login", controllers.login);
+  auth.post("/refresh", controllers.refreshToken);
   auth.post("/change", authMiddleware, controllers.changeCredentials);
   auth.get("/me", authMiddleware, controllers.me);
   router.use("/auth", auth);

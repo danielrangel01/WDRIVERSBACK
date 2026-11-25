@@ -9,7 +9,7 @@ export function makeAuthMiddleware(tokenService) {
     if (!token || !TOKEN_RX.test(token)) return next(new UnauthorizedError());
     try {
       const payload = tokenService.verify(token);
-      if (!payload || typeof payload.id !== "string") {
+      if (!payload || typeof payload.id !== "string" || payload.tokenUse === "refresh") {
         return next(new UnauthorizedError("Sesión inválida"));
       }
       req.user = { id: payload.id, username: String(payload.username || "") };

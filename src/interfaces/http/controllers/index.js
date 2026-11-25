@@ -38,6 +38,10 @@ export function buildControllers(useCases, { notify = {} } = {}) {
       const result = await useCases.login.execute(req.body);
       res.json(result);
     }),
+    refreshToken: asyncHandler(async (req, res) => {
+      const result = await useCases.refreshToken.execute(req.body || {});
+      res.json(result);
+    }),
     changeCredentials: asyncHandler(async (req, res) => {
       const result = await useCases.changeCredentials.execute({
         userId: req.user.id,
