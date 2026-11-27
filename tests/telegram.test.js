@@ -264,12 +264,14 @@ describe("🗂️ Menú de opciones en los avisos (Telegram)", () => {
 // ── Webhook de Telegram ────────────────────────────────────────────────────
 describe("🔗 Webhook de Telegram", () => {
   it("extrae mensajes de texto y callback_query", () => {
-    const update = { message: { chat: { id: 123 }, message_id: 7, text: "revisar" } };
-    expect(extractTelegramUpdates(update)).toEqual([{ from: "123", text: "revisar", messageId: "7" }]);
+    const update = { update_id: 1001, message: { chat: { id: 123 }, message_id: 7, text: "revisar" } };
+    expect(extractTelegramUpdates(update)).toEqual([
+      { from: "123", text: "revisar", messageId: "7", updateId: "1001" },
+    ]);
 
-    const cq = { callback_query: { id: "cb1", data: `pay:${CAR_A}`, message: { message_id: 8, chat: { id: 999 } } } };
+    const cq = { update_id: 1002, callback_query: { id: "cb1", data: `pay:${CAR_A}`, message: { message_id: 8, chat: { id: 999 } } } };
     expect(extractTelegramUpdates(cq)).toEqual([
-      { from: "999", action: `pay:${CAR_A}`, callbackQueryId: "cb1", messageId: "8" },
+      { from: "999", action: `pay:${CAR_A}`, callbackQueryId: "cb1", messageId: "8", updateId: "1002" },
     ]);
   });
 

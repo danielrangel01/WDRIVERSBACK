@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseCoAmount, extractAmount, parseNequiEmail, toBogotaDateStr } from "../src/infrastructure/mail/NequiEmailParser.js";
+import { parseCoAmount, extractAmount, extractTime, parseNequiEmail, toBogotaDateStr } from "../src/infrastructure/mail/NequiEmailParser.js";
 
 describe("parseCoAmount", () => {
   it("interpreta el formato colombiano de miles", () => {
@@ -29,6 +29,24 @@ describe("extractAmount", () => {
   });
   it("usa el primer monto si no hay palabra clave", () => {
     expect(extractAmount("Movimiento por $250.000")).toBe(250000);
+  });
+});
+
+describe("extractTime", () => {
+  it("extrae la hora del cuerpo con a. m./p. m.", () => {
+    expect(extractTime("Recibiste 10.000 de JUAN el 9 de noviembre de 2026 a las 6:56 p.m, desde el banco"))
+      .toBe("6:56 p.m.");
+    expect(extractTime("Recibiste un pago a las 9:05 a.m.")).toBe("9:05 a.m.");
+  });
+  it("acepta variantes sin punto y con hora de un dígito", () => {
+    expect(extractTime("pago a las 3:07 pm")).toBe("3:07 p.m.");
+    expect(extractTime("a la 6.56 p. m.")).toBe("6:56 p.m.");
+  });
+  it("devuelve la hora en formato 24 h si no trae a.m./p.m.", () => {
+    expect(extractTime("llegó a las 15:45")).toBe("15:45");
+  });
+  it("devuelve vacío si el correo no trae hora", () => {
+    expect(extractTime("Recibiste un pago por $80.000")).toBe("");
   });
 });
 
@@ -67,6 +85,7 @@ describe("parseNequiEmail", () => {
     expect(r.isPayment).toBe(true);
     expect(r.amount).toBe(10000);
     expect(r.payerName).toBe("DANIEL FARID RANGEL LLANOS");
+    expect(r.detectedTime).toBe("6:56 p.m.");
   });
 
   it("extrae el nombre del pagador cuando va antes del verbo", () => {

@@ -73,6 +73,21 @@ export function toBogotaDateStr(date) {
   }
 }
 
+// Hora del pago escrita en el cuerpo del correo ("… el 9 de noviembre de 2026
+// a las 6:56 p.m"). Se normaliza a "6:56 p.m." (o "15:45" en formato 24 h) y
+// se devuelve "" si el correo no la trae.
+const TIME_RX = /\ba\s+las?\s+(\d{1,2})[:.](\d{2})\s*(a\.?\s?m\.?|p\.?\s?m\.?)?/i;
+
+export function extractTime(text) {
+  const m = TIME_RX.exec(String(text || ""));
+  if (!m) return "";
+  const hhmm = `${Number(m[1])}:${m[2]}`;
+  const suffix = String(m[3] || "").toLowerCase().replace(/\s+/g, "");
+  if (/^a\.?m/.test(suffix)) return `${hhmm} a.m.`;
+  if (/^p\.?m/.test(suffix)) return `${hhmm} p.m.`;
+  return hhmm;
+}
+
 // Extrae montos del texto. Prioriza el monto anclado a una palabra clave de
 // "recibido" (sirve con o sin "$"); si no, usa el primer monto con "$".
 export function extractAmount(text) {
@@ -155,6 +170,7 @@ export function parseNequiEmail({ subject = "", text = "", html = "", date = new
     isPayment,
     amount,
     detectedDate: toBogotaDateStr(date),
+    detectedTime: extractTime(haystack),
     payerName: extractPayerName(haystack),
     snippet: body.slice(0, 300).trim(),
     from: String(from || "").slice(0, 160),

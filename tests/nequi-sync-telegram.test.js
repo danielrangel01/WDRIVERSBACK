@@ -53,6 +53,32 @@ describe("SyncNequiUseCase — notificación por Telegram", () => {
     expect(arg.text).toContain("Nequi");
   });
 
+  it("el botón de gestión dice 'Gestionar' (sin el chulo ni el monto)", async () => {
+    const { uc, sendTelegram } = build({
+      inserted: [{ id: "f".repeat(24), amount: 80000, from: "JUAN PEREZ", detectedDate: "2026-03-10" }],
+    });
+    await uc.execute();
+
+    const arg = sendTelegram.execute.mock.calls[0][0];
+    expect(arg.kind).toBe("buttons");
+    const titles = arg.buttons.flatMap((r) => (r.row || []).map((b) => b.title));
+    expect(titles).toContain("Gestionar");
+    expect(titles.some((t) => t.includes("✅"))).toBe(false);
+    expect(arg.buttons[0].row[0].id).toMatch(/^nq:ok:/);
+    expect(arg.text).toContain("Gestionar");
+  });
+
+  it("muestra la hora en que llegó el dinero cuando el correo la trae", async () => {
+    const { uc, sendTelegram } = build({
+      inserted: [{ id: "f".repeat(24), amount: 80000, from: "JUAN PEREZ", detectedDate: "2026-03-10", detectedTime: "6:56 p.m." }],
+    });
+    await uc.execute();
+
+    const arg = sendTelegram.execute.mock.calls[0][0];
+    expect(arg.text).toContain("10/03/2026 6:56 p.m.");
+    expect(arg.text).toContain("por asignar");
+  });
+
   it("NO notifica si no hay pagos nuevos", async () => {
     const { uc, sendTelegram } = build({ inserted: [] });
     const r = await uc.execute();

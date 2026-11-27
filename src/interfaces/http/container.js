@@ -4,7 +4,7 @@ import {
   MongoUserRepository, MongoCarRepository, MongoPaymentRepository,
   MongoExpenseRepository, MongoDocumentRepository, MongoOffDayRepository, MongoSettingsRepository, MongoRefinanceRepository,
   MongoPendingPaymentRepository, MongoPushSubscriptionRepository, MongoReminderLogRepository,
-  MongoHandoverRepository, MongoAgentSessionRepository,
+  MongoHandoverRepository, MongoAgentSessionRepository, MongoTelegramUpdateRepository,
 } from "../../infrastructure/database/repositories/index.js";
 
 import { BcryptHasher } from "../../infrastructure/security/BcryptHasher.js";
@@ -59,6 +59,7 @@ export function buildContainer() {
   const reminderLogRepository = new MongoReminderLogRepository();
   const handoverRepository = new MongoHandoverRepository();
   const agentSessionRepository = new MongoAgentSessionRepository();
+  const telegramUpdateRepository = new MongoTelegramUpdateRepository();
 
   const passwordHasher = new BcryptHasher();
   const tokenService = new JwtTokenService(config.jwtSecret, config.jwtExpiresIn, config.jwtRefreshExpiresIn);
@@ -119,11 +120,12 @@ export function buildContainer() {
   const listPendingPayments = new ListPendingPaymentsUseCase({ pendingPaymentRepository });
   const approvePendingPayment = new ApprovePendingPaymentUseCase({ pendingPaymentRepository, addPaymentUseCase: addPayment });
   const dismissPendingPayment = new DismissPendingPaymentUseCase({ pendingPaymentRepository });
+  const getCarDebtDetail = new GetCarDebtDetailUseCase({ carRepository, paymentRepository, offDayRepository, handoverRepository });
 
   // Agente conversacional determinista (inbound por WhatsApp o Telegram).
   const whatsAppAgent = new WhatsAppAgentUseCase({
     getAgenda, getSettings, addPayment, toggleOffDay, sendWhatsApp, sendTelegram, agentSessionRepository,
-    listPendingPayments, approvePendingPayment, dismissPendingPayment,
+    listPendingPayments, approvePendingPayment, dismissPendingPayment, getCarDebtDetail,
     checkinTemplate: config.notifications.whatsappCheckinTemplate,
     telegramChatId: config.notifications.telegramAdminChatId,
   });
@@ -137,7 +139,7 @@ export function buildContainer() {
     updateCar: new UpdateCarUseCase({ carRepository }),
     deactivateCar: new DeactivateCarUseCase({ carRepository }),
     reactivateCar: new ReactivateCarUseCase({ carRepository }),
-    getCarDebtDetail: new GetCarDebtDetailUseCase({ carRepository, paymentRepository, offDayRepository, handoverRepository }),
+    getCarDebtDetail,
     addPayment,
     deletePayment: new DeletePaymentUseCase({ paymentRepository }),
     addExpense: new AddExpenseUseCase({ expenseRepository }),
@@ -190,7 +192,7 @@ export function buildContainer() {
     repositories: {
       userRepository, carRepository, pendingPaymentRepository,
       settingsRepository, reminderLogRepository, pushSubscriptionRepository,
-      handoverRepository, agentSessionRepository,
+      handoverRepository, agentSessionRepository, telegramUpdateRepository,
     },
     notify: {
       emailNotifier, pushNotifier, whatsappNotifier, telegramNotifier, reminderDispatcher,

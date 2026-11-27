@@ -69,6 +69,14 @@ const addDays = (iso, delta) => {
   return dt.toISOString().slice(0, 10);
 };
 
+// Fecha y hora del pago ("dd/mm/aaaa 6:56 p.m."), omitiendo la hora si no vino.
+const paymentWhen = (p) => `${dmy(p.detectedDate)}${p.detectedTime ? ` ${p.detectedTime}` : ""}`;
+
+const safeNum = (v) => {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : 0;
+};
+
 /**
  * Agente conversacional determinista (inbound) por WhatsApp o Telegram.
  * El administrador responde/escribe y el agente traduce el mensaje a acciones
@@ -81,7 +89,7 @@ const addDays = (iso, delta) => {
  * elige con el parámetro `channel` ("whatsapp" | "telegram").
  */
 export class WhatsAppAgentUseCase {
-  constructor({ getAgenda, getSettings, addPayment, toggleOffDay, sendWhatsApp, sendTelegram, agentSessionRepository, listPendingPayments, approvePendingPayment, dismissPendingPayment, checkinTemplate, telegramChatId, closureLookbackDays } = {}) {
+  constructor({ getAgenda, getSettings, addPayment, toggleOffDay, sendWhatsApp, sendTelegram, agentSessionRepository, listPendingPayments, approvePendingPayment, dismissPendingPayment, getCarDebtDetail, checkinTemplate, telegramChatId, closureLookbackDays } = {}) {
     this.getAgenda = getAgenda;
     this.getSettings = getSettings;
     this.addPayment = addPayment;
@@ -93,6 +101,8 @@ export class WhatsAppAgentUseCase {
     this.listPendingPayments = listPendingPayments;
     this.approvePendingPayment = approvePendingPayment;
     this.dismissPendingPayment = dismissPendingPayment;
+    // Detalle de deuda del carro (para listar los días pendientes a asignar).
+    this.getCarDebtDetail = getCarDebtDetail;
     this.checkinTemplate = checkinTemplate || "wdrivers_checkin_util";
     // Respaldo del chat id del admin (si no está en Ajustes).
     this.telegramChatId = telegramChatId || "";
@@ -196,9 +206,14 @@ export class WhatsAppAgentUseCase {
     const active = session && session.status === "active";
     const selecting = session && session.status === "closures";
     // El mensaje puede ser la respuesta (placa o número) de una conciliación
-    // Nequi en curso: en ese caso se asigna el pago al carro elegido.
-    if (session && session.status === "nequi" && this.isNequiReply(cmd)) {
-      return this.pickNequiCar(session, cmd, todayAgenda);
+    // Nequi en curso: primero el carro y, una vez elegido, los días pendientes.
+    if (session && session.status === "nequi") {
+      if (session.phase === "days") {
+        const out = await this.nequiDaysReply(session, cmd, todayAgenda);
+        if (out) return out;
+      } else if (this.isNequiReply(cmd)) {
+        return this.pickNequiCar(session, cmd, todayAgenda);
+      }
     }
     // Durante una revisión activa (de hoy o de una fecha anterior elegida) las
     // acciones aplican al día de la SESIÓN, no necesariamente a hoy.
@@ -638,7 +653,7 @@ export class WhatsAppAgentUseCase {
     }
 
     const pending = await this.findPending(id);
-    if (!pending) return { text: "ℹ️ Ese pago ya no está pendiente de conciliar." };
+    if (!pending) return { text: "ℹ️ Ese pago ya no está pendiente de asignar." };
 
     const agenda = await this.getAgenda.execute();
     return this.startNequiConciliation(phone, pending, agenda);
@@ -651,17 +666,99 @@ export class WhatsAppAgentUseCase {
     return (list || []).find((p) => p.id === id) || null;
   }
 
-  /** Registra el pago real asignado al carro. Devuelve el texto de respuesta. */
-  async approveNequi(pending, car) {
-    if (!this.approvePendingPayment) return "⚠️ No puedo conciliar pagos ahora mismo.";
+  /** Registra el/los pago(s) reales asignados al carro. Devuelve el texto. */
+  async approveNequi(pending, car, allocations) {
+    if (!this.approvePendingPayment) return "⚠️ No puedo asignar pagos ahora mismo.";
+    const list = (Array.isArray(allocations) && allocations.length)
+      ? allocations
+      : [{ date: pending.detectedDate, amount: Math.round(safeNum(pending.amount)) }];
     try {
-      await this.approvePendingPayment.execute({
-        id: pending.id, carId: car.carId, date: pending.detectedDate,
-      });
+      await this.approvePendingPayment.execute({ id: pending.id, carId: car.carId, allocations: list });
     } catch (err) {
-      return `⚠️ No pude conciliar el pago (${err.message}).`;
+      return `⚠️ No pude asignar el pago (${err.message}).`;
     }
-    return `✅ *${formatCOP(pending.amount)}* de ${payerLabel(pending)} asignado a *${car.plate}* (${dmy(pending.detectedDate)}).`;
+    const total = list.reduce((s, a) => s + safeNum(a.amount), 0);
+    const days = list.map((a) => dmy(a.date)).join(", ");
+    return `✅ *${formatCOP(total)}* de ${payerLabel(pending)} asignado a *${car.plate}* — día(s): ${days}.`;
+  }
+
+  /** Días pendientes (con saldo) de un carro, del más antiguo al más reciente. */
+  async carPendingDays(carId) {
+    if (!this.getCarDebtDetail || !carId) return { days: [], rate: 0 };
+    try {
+      const detail = await this.getCarDebtDetail.execute({ carId });
+      const days = (detail.days || [])
+        .filter((d) => safeNum(d.remaining) > 0.001)
+        .map((d) => ({
+          date: d.date,
+          remaining: Math.round(safeNum(d.remaining)),
+          amount: Math.round(safeNum(d.amount)),
+          partial: !!d.partial,
+        }))
+        .sort((a, b) => a.date.localeCompare(b.date));
+      return { days, rate: Math.round(safeNum(detail.rate)) };
+    } catch {
+      return { days: [], rate: 0 };
+    }
+  }
+
+  /** Cuántas tarifas cubre un monto, consumiendo los días más antiguos primero. */
+  planDays(days, amount) {
+    let budget = Math.round(safeNum(amount));
+    const chosen = [];
+    for (const d of days) {
+      if (budget <= 0) break;
+      const take = Math.min(d.remaining, budget);
+      budget -= take;
+      chosen.push({ date: d.date, take, remaining: d.remaining });
+    }
+    const last = chosen[chosen.length - 1];
+    return {
+      chosen,
+      count: chosen.length,
+      partial: !!last && last.take < last.remaining,
+      leftover: Math.max(0, budget),
+    };
+  }
+
+  /** Reparte el monto del pago por días (un registro por día), ajustando el sobrante. */
+  buildAllocations(days, selectedDates, amount, todayDate) {
+    const byDate = new Map(days.map((d) => [d.date, d]));
+    const chosen = selectedDates
+      .map((dt) => byDate.get(dt))
+      .filter(Boolean)
+      .sort((a, b) => a.date.localeCompare(b.date));
+    const lastDate = chosen.length ? chosen[chosen.length - 1].date : "";
+    const taken = new Set(chosen.map((c) => c.date));
+    // Para absorber el sobrante se usan los días pendientes posteriores al último
+    // elegido (del más antiguo al más reciente, como hace el motor de deuda).
+    const extra = days
+      .filter((d) => d.date > lastDate && !taken.has(d.date))
+      .sort((a, b) => a.date.localeCompare(b.date));
+
+    let budget = Math.round(safeNum(amount));
+    const out = [];
+    for (const d of [...chosen, ...extra]) {
+      if (budget <= 0) break;
+      const take = Math.min(d.remaining, budget);
+      if (take <= 0) continue;
+      out.push({ date: d.date, amount: take });
+      budget -= take;
+    }
+    // Si aún sobra dinero (el pago supera la deuda pendiente) se registra como
+    // adelanto con la fecha de hoy, para no perder el monto.
+    if (budget > 0) out.push({ date: todayDate, amount: budget });
+    return out;
+  }
+
+  /** Números de día escritos por el admin (ej. "1,2,3" → [1,2,3]). */
+  parseDayIndexes(raw) {
+    const out = [];
+    for (const m of String(raw || "").matchAll(/\d{1,3}/g)) {
+      const n = Number(m[0]);
+      if (n >= 1) out.push(n);
+    }
+    return [...new Set(out)];
   }
 
   /** Guarda la sesión de conciliación y pregunta a qué carro asignar el pago. */
@@ -670,6 +767,7 @@ export class WhatsAppAgentUseCase {
       phone: agentKey(phone),
       date: pending.detectedDate,
       status: "nequi",
+      phase: "",
       pendingId: pending.id,
       queue: (agenda.checklist || []).map((c) => c.carId),
       index: 0,
@@ -690,12 +788,38 @@ export class WhatsAppAgentUseCase {
     return {
       text: [
         `🏦 Pago Nequi de *${formatCOP(pending.amount)}* — ${payerLabel(pending)}`,
-        `Fecha: ${dmy(pending.detectedDate)}`,
+        `Fecha: ${paymentWhen(pending)}`,
         "",
         "¿A qué carro lo asigno?",
         ...lines,
       ].join("\n"),
       footer: "Responde con el número o con la placa (ej. ABC123).",
+    };
+  }
+
+  /** Pregunta a qué día(s) pendientes del carro asignar el pago. */
+  nequiDaysAskText(session, pending, detail) {
+    const days = detail.days || [];
+    const plan = this.planDays(days, pending.amount);
+    const lines = days.map((d, i) =>
+      `${i + 1}. ${dmy(d.date)} — ${d.partial ? "falta " : "debe "}${formatCOP(d.remaining)}`
+    );
+    const last = plan.chosen[plan.chosen.length - 1];
+    const cover = plan.count
+      ? `💰 Este pago cubre ~*${plan.count}* tarifa(s) (hasta ${dmy(last.date)}${plan.partial ? ", última parcial" : ""}).`
+      : "";
+    return {
+      text: [
+        `🏦 Pago Nequi de *${formatCOP(pending.amount)}* — ${payerLabel(pending)}`,
+        `Carro: *${session.plate || ""}* · ${paymentWhen(pending)}`,
+        "",
+        "*Días pendientes:*",
+        ...lines,
+        "",
+        cover,
+        "¿A qué días lo asigno? Responde con los números (ej. *1,2,3*) o *ok* para los sugeridos.",
+      ].filter(Boolean).join("\n"),
+      footer: "Puedes marcar varios días separados por coma.",
     };
   }
 
@@ -726,12 +850,12 @@ export class WhatsAppAgentUseCase {
     return null;
   }
 
-  /** Asigna el pago pendiente al carro respondido; si no lo resuelve, re-pregunta. */
+  /** Carro respondido: pregunta los días pendientes a los que asignar el pago. */
   async pickNequiCar(session, cmd, agenda) {
     const pending = await this.findPending(session.pendingId);
     if (!pending) {
       if (this.sessions) await this.sessions.clear(session.phone);
-      return { text: "ℹ️ Ese pago ya no está pendiente de conciliar." };
+      return { text: "ℹ️ Ese pago ya no está pendiente de asignar." };
     }
     const car = this.resolveNequiCar(session, cmd, agenda);
     if (!car) {
@@ -739,8 +863,73 @@ export class WhatsAppAgentUseCase {
       out.text = `🤔 No encontré ese carro.\n\n${out.text}`;
       return out;
     }
+    const detail = await this.carPendingDays(car.carId);
+    if (!detail.days.length) {
+      // Carro al día: sin días pendientes → se registra con la fecha detectada.
+      if (this.sessions) await this.sessions.clear(session.phone);
+      const allocations = [{ date: pending.detectedDate, amount: Math.round(safeNum(pending.amount)) }];
+      return { text: await this.approveNequi(pending, car, allocations) };
+    }
+    const next = {
+      ...session,
+      phase: "days",
+      carId: car.carId,
+      plate: car.plate,
+      dayDates: detail.days.map((d) => d.date),
+    };
+    if (this.sessions) await this.sessions.save(next);
+    return this.nequiDaysAskText(next, pending, detail);
+  }
+
+  /** Responde la selección de días: registra el pago en los días elegidos. */
+  async nequiDaysReply(session, cmd, agenda) {
+    const ignore = [
+      INTENT.HELP, INTENT.STATUS, INTENT.PENDING,
+      INTENT.CHECKIN, INTENT.CLOSURES, INTENT.CLOSE,
+    ];
+    const raw = String(cmd.raw || "").trim();
+    const numbers = this.parseDayIndexes(raw);
+    const confirmAll = /^(ok|si|todos|todas|confirmo|confirmar|listo)$/.test(raw.replace(/\s+/g, " "));
+    // Comando global u otro texto: se deja pasar al flujo general.
+    if (!numbers.length && !confirmAll) {
+      if (ignore.includes(cmd.intent)) return null;
+      const pending = await this.findPending(session.pendingId);
+      if (!pending) {
+        if (this.sessions) await this.sessions.clear(session.phone);
+        return { text: "ℹ️ Ese pago ya no está pendiente de asignar." };
+      }
+      const detail = await this.carPendingDays(session.carId);
+      const out = this.nequiDaysAskText(session, pending, detail);
+      out.text = `🤔 Responde con los números de los días (ej. *1,2*).\n\n${out.text}`;
+      return out;
+    }
+    return this.pickNequiDays(session, cmd, agenda, numbers);
+  }
+
+  /** Confirma los días elegidos y registra el pago (uno por día). */
+  async pickNequiDays(session, cmd, agenda, numbers) {
+    const pending = await this.findPending(session.pendingId);
+    if (!pending) {
+      if (this.sessions) await this.sessions.clear(session.phone);
+      return { text: "ℹ️ Ese pago ya no está pendiente de asignar." };
+    }
+    const detail = await this.carPendingDays(session.carId);
+    const days = detail.days || [];
+    const car = this.findCar(agenda, session.carId) || { carId: session.carId, plate: session.plate || "" };
+
+    const valid = (numbers || []).filter((n) => n >= 1 && n <= days.length);
+    const selectedDates = valid.length
+      ? [...new Set(valid)].sort((a, b) => a - b).map((i) => days[i - 1].date)
+      : this.planDays(days, pending.amount).chosen.map((c) => c.date);
+
+    const allocations = this.buildAllocations(days, selectedDates, pending.amount, agenda.date);
+    if (!allocations.length) {
+      const out = this.nequiDaysAskText(session, pending, detail);
+      out.text = `🤔 No hay días que coincidan.\n\n${out.text}`;
+      return out;
+    }
     if (this.sessions) await this.sessions.clear(session.phone);
-    return { text: await this.approveNequi(pending, car) };
+    return { text: await this.approveNequi(pending, car, allocations) };
   }
 
   // ── Resolución de carro ────────────────────────────────────────────────
@@ -825,7 +1014,7 @@ export class WhatsAppAgentUseCase {
       );
     }
     if (s.nequiPendingCount) {
-      lines.push(`🏦 Nequi por conciliar: ${s.nequiPendingCount} (${formatCOP(s.nequiPendingAmount)})`);
+      lines.push(`🏦 Nequi por asignar: ${s.nequiPendingCount} (${formatCOP(s.nequiPendingAmount)})`);
     }
     return lines.join("\n");
   }
@@ -851,7 +1040,7 @@ export class WhatsAppAgentUseCase {
       "Ejemplo: _ABC123 taller_",
       "🚗 *detalle* — ficha de un carro: deuda, pagado hoy y estado.",
       "Ejemplo: _ABC123_",
-      "🏦 *Nequi* — cuando entra plata te aviso con el nombre de quien pagó. Toca ✅ para conciliarlo con un carro (te pregunto cuál) o 🚫 para descartarlo.",
+      "🏦 *Nequi* — cuando entra plata te aviso con el nombre de quien pagó. Toca *Gestionar*, eliges el carro y luego los días pendientes a los que asignar el pago (un pago puede cubrir varias tarifas), o 🚫 para descartarlo.",
       "",
       "Puedes usar la *placa* o el *número* de la lista de *pendientes*.",
     ].join("\n");

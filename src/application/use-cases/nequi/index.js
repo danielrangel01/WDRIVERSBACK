@@ -12,6 +12,9 @@ const dmy = (iso) => {
   return d ? `${d}/${m}/${y}` : String(iso || "");
 };
 
+// Fecha y hora del pago ("dd/mm/aaaa 6:56 p.m."), omitiendo la hora si no vino.
+const when = (p) => `${dmy(p.detectedDate)}${p.detectedTime ? ` ${p.detectedTime}` : ""}`;
+
 // Detecta pagos recibidos (Nequi) desde el buzón y los guarda como pendientes.
 // Al detectar pagos NUEVOS envía además una notificación por Telegram al admin
 // (mismo destino que el agente: Ajustes.telegramChatId o el respaldo del entorno).
@@ -85,23 +88,23 @@ export class SyncNequiUseCase {
       const MAX_LINES = 10;
       const MAX_BUTTONS = 8;
       const lines = items.slice(0, MAX_LINES)
-        .map((p) => `• *${formatCOP(p.amount)}* — ${payerLabel(p)} · ${dmy(p.detectedDate)}`);
+        .map((p) => `• *${formatCOP(p.amount)}* — ${payerLabel(p)} · ${when(p)}`);
       if (items.length > MAX_LINES) lines.push(`…y ${items.length - MAX_LINES} más.`);
 
       const text = [
-        `🏦 *Nequi* — ${items.length} pago(s) nuevo(s) por conciliar`,
+        `🏦 *Nequi* — ${items.length} pago(s) nuevo(s) por asignar`,
         "",
         ...lines,
         "",
-        "Toca un pago para conciliarlo con un carro, o descártalo.",
+        "Toca *Gestionar* para asignarlo a un carro y elegir el día, o 🚫 para descartarlo.",
       ].join("\n");
 
-      // Un renglón por pago: ✅ conciliar / 🚫 descartar.
+      // Un renglón por pago: [Gestionar] / 🚫 descartar.
       const buttons = items.slice(0, MAX_BUTTONS)
         .filter((p) => p.id)
         .map((p) => ({
           row: [
-            { id: `nq:ok:${p.id}`, title: `✅ ${formatCOP(p.amount)} · ${payerLabel(p)}`.slice(0, 60) },
+            { id: `nq:ok:${p.id}`, title: "Gestionar" },
             { id: `nq:no:${p.id}`, title: "🚫" },
           ],
         }));
@@ -128,14 +131,16 @@ export class ListPendingPaymentsUseCase {
 }
 
 // Aprueba un pendiente: crea el pago real asignado al carro y fecha elegidos.
+// Un mismo pago Nequi puede cubrir varias tarifas (días), por eso acepta
+// `allocations: [{ date, amount }]` (un registro de pago por día). Si no se
+// envían, se registra un único pago con el monto total y la fecha indicada.
 export class ApprovePendingPaymentUseCase {
   constructor({ pendingPaymentRepository, addPaymentUseCase }) {
     this.pending = pendingPaymentRepository;
     this.addPayment = addPaymentUseCase;
   }
-  async execute({ id, carId, date, note }) {
+  async execute({ id, carId, date, note, allocations }) {
     if (!validOid(id)) throw new ValidationError("Pago pendiente inválido");
-    if (!DATE_RE.test(date || "")) throw new ValidationError("Fecha inválida (YYYY-MM-DD)");
 
     const pending = await this.pending.findById(id);
     if (!pending) throw new NotFoundError("El pago pendiente no existe");
@@ -145,18 +150,28 @@ export class ApprovePendingPaymentUseCase {
       ? note.trim().slice(0, MAX_NOTE)
       : `Nequi · ${payerLabel(pending)}`.slice(0, MAX_NOTE);
 
-    const payment = await this.addPayment.execute({
-      carId,
-      date,
-      amount: pending.amount,
-      note: finalNote,
-    });
+    const list = (Array.isArray(allocations) && allocations.length)
+      ? allocations
+      : [{ date, amount: pending.amount }];
+
+    const payments = [];
+    for (const a of list) {
+      if (!DATE_RE.test(String((a && a.date) || ""))) throw new ValidationError("Fecha inválida (YYYY-MM-DD)");
+      const amount = Math.round(Number(a && a.amount));
+      if (!Number.isFinite(amount) || amount <= 0) throw new ValidationError("Monto inválido en la asignación");
+      payments.push(await this.addPayment.execute({ carId, date: a.date, amount, note: finalNote }));
+    }
 
     pending.status = "approved";
-    pending.approvedPaymentId = payment.id;
+    pending.approvedPaymentId = payments[0].id;
     await this.pending.update(pending);
 
-    return { ok: true, payment: payment.toJSON(), pending: pending.toJSON() };
+    return {
+      ok: true,
+      payment: payments.length === 1 ? payments[0].toJSON() : undefined,
+      payments: payments.map((p) => p.toJSON()),
+      pending: pending.toJSON(),
+    };
   }
 }
 

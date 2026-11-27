@@ -141,10 +141,11 @@ export const PENDING_PAYMENT_STATUS = ["pending", "approved", "dismissed"];
 
 // Pago entrante detectado desde correo (Nequi) y pendiente de conciliar por el admin.
 export class PendingPayment {
-  constructor({ id, amount, detectedDate, source = "nequi", from = "", payerName = "", subject = "", snippet = "", messageId, status = "pending", approvedPaymentId = null, createdAt = null }) {
+  constructor({ id, amount, detectedDate, detectedTime = "", source = "nequi", from = "", payerName = "", subject = "", snippet = "", messageId, status = "pending", approvedPaymentId = null, createdAt = null }) {
     this.id = id;
     this.amount = Number(amount);
     this.detectedDate = detectedDate;
+    this.detectedTime = typeof detectedTime === "string" ? detectedTime.slice(0, 12) : "";
     this.source = req(source, 40) || "nequi";
     this.from = req(from, 160);
     this.payerName = req(payerName, 160);
@@ -168,7 +169,8 @@ export class PendingPayment {
   }
   toJSON() {
     return {
-      id: this.id, amount: this.amount, detectedDate: this.detectedDate, source: this.source,
+      id: this.id, amount: this.amount, detectedDate: this.detectedDate, detectedTime: this.detectedTime,
+      source: this.source,
       from: this.from, payerName: this.payerName, subject: this.subject, snippet: this.snippet,
       messageId: this.messageId, status: this.status, approvedPaymentId: this.approvedPaymentId,
       createdAt: this.createdAt,

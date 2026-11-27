@@ -57,7 +57,7 @@ export function buildDayCloseReport(agenda) {
   if (s.overdueCount > 0) extras.push(`🚨 Atrasados: ${s.overdueCount} — ${cop(s.overdueAmount)}`);
   if (s.refinanceCount > 0) extras.push(`🔁 Refinanciaciones: ${s.refinanceCount} — ${cop(s.refinanceRemaining)}`);
   if (s.docsAlertCount > 0) extras.push(`📄 Docs por vencer: ${s.docsAlertCount} (${s.docsExpiredCount || 0} vencidos)`);
-  if (s.nequiPendingCount > 0) extras.push(`🏦 Nequi por conciliar: ${s.nequiPendingCount} — ${cop(s.nequiPendingAmount)}`);
+  if (s.nequiPendingCount > 0) extras.push(`🏦 Nequi por asignar: ${s.nequiPendingCount} — ${cop(s.nequiPendingAmount)}`);
   if (extras.length) {
     lines.push("");
     lines.push(...extras);

@@ -11,6 +11,7 @@ import { Handover } from "../../../domain/entities/Handover.js";
 import {
   UserModel, CarModel, PaymentModel, ExpenseModel, DocumentModel, OffDayModel, SettingsModel, RefinanceModel,
   PendingPaymentModel, PushSubscriptionModel, ReminderLogModel, HandoverModel, AgentSessionModel,
+  TelegramUpdateModel,
 } from "../models/index.js";
 
 const id = (doc) => doc._id.toString();
@@ -273,7 +274,7 @@ export class MongoRefinanceRepository extends IRefinanceRepository {
 
 // ── PendingPayments (pagos entrantes detectados por correo) ────────────────────
 const toPendingPayment = (d) => new PendingPayment({
-  id: id(d), amount: d.amount, detectedDate: d.detectedDate, source: d.source,
+  id: id(d), amount: d.amount, detectedDate: d.detectedDate, detectedTime: d.detectedTime, source: d.source,
   from: d.from, payerName: d.payerName, subject: d.subject, snippet: d.snippet,
   messageId: d.messageId, status: d.status, approvedPaymentId: d.approvedPaymentId,
   createdAt: d.createdAt,
@@ -292,7 +293,7 @@ export class MongoPendingPaymentRepository extends IPendingPaymentRepository {
   async insertMany(pending) {
     if (!Array.isArray(pending) || pending.length === 0) return [];
     const docs = pending.map((p) => ({
-      amount: p.amount, detectedDate: p.detectedDate, source: p.source,
+      amount: p.amount, detectedDate: p.detectedDate, detectedTime: p.detectedTime || "", source: p.source,
       from: p.from, payerName: p.payerName, subject: p.subject, snippet: p.snippet,
       messageId: p.messageId, status: p.status,
     }));
@@ -377,6 +378,28 @@ export class MongoReminderLogRepository extends IReminderLogRepository {
   }
 }
 
+// ── TelegramUpdate (deduplicación de updates entrantes de Telegram) ───────────
+export class MongoTelegramUpdateRepository {
+  // Reclama un `update_id` de forma atómica. Devuelve true si es la PRIMERA vez
+  // que se ve (hay que procesarlo) y false si ya estaba reclamado (es un
+  // reintento de Telegram → se ignora).
+  async claim(updateId) {
+    if (!updateId) return true;
+    try {
+      const r = await TelegramUpdateModel.updateOne(
+        { _id: String(updateId) },
+        { $setOnInsert: { at: new Date() } },
+        { upsert: true }
+      );
+      return (r && r.upsertedCount === 1) === true;
+    } catch (err) {
+      // Carrera entre dos entregas simultáneas del mismo update: la otra ganó.
+      if (err && err.code === 11000) return false;
+      throw err;
+    }
+  }
+}
+
 // ── AgentSession (estado del check-in paso a paso del asistente) ──────────────
 // La clave "phone" identifica la conversación: solo dígitos para WhatsApp y
 // "tg:<chatId>" para Telegram (así no colisionan entre canales).
@@ -396,6 +419,9 @@ export class MongoAgentSessionRepository extends IAgentSessionRepository {
       answers: (d.answers || []).map((a) => ({ carId: a.carId, action: a.action, at: a.at })),
       status: d.status || "active",
       pendingId: d.pendingId || "",
+      phase: d.phase || "",
+      carId: d.carId || "",
+      dayDates: d.dayDates || [],
     };
   }
   async save(session) {
@@ -411,6 +437,9 @@ export class MongoAgentSessionRepository extends IAgentSessionRepository {
         answers: (session && session.answers) || [],
         status: (session && session.status) || "active",
         pendingId: (session && session.pendingId) || "",
+        phase: (session && session.phase) || "",
+        carId: (session && session.carId) || "",
+        dayDates: (session && session.dayDates) || [],
       },
       { upsert: true, new: true }
     );

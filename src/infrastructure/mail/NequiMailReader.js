@@ -65,6 +65,7 @@ export class NequiMailReader {
             candidates.push({
               amount: result.amount,
               detectedDate: result.detectedDate,
+              detectedTime: result.detectedTime || "",
               snippet: result.snippet,
               from: result.from,
               payerName: result.payerName,

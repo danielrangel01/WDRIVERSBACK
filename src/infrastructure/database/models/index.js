@@ -87,6 +87,7 @@ const pendingPaymentSchema = new Schema(
   {
     amount: { type: Number, required: true },
     detectedDate: { type: String, required: true },          // YYYY-MM-DD sugerida
+    detectedTime: { type: String, default: "" },             // hora del pago ("6:56 p.m.")
     source: { type: String, default: "nequi" },
     from: { type: String, default: "" },                     // remitente del correo
     payerName: { type: String, default: "" },                // nombre de quien envía el pago
@@ -134,6 +135,18 @@ const reminderLogSchema = new Schema(
   { timestamps: true }
 );
 
+// Registro idempotente de updates de Telegram ya procesados (deduplicación por
+// `update_id`). Telegram reenvía un update si no recibe el 200 a tiempo; sin
+// esto, un mismo mensaje/botón se procesaría dos veces. Expira a las 24 h.
+const telegramUpdateSchema = new Schema(
+  {
+    _id: { type: String }, // update_id de Telegram
+    at: { type: Date, default: Date.now },
+  },
+  { versionKey: false }
+);
+telegramUpdateSchema.index({ at: 1 }, { expireAfterSeconds: 86400 });
+
 // Entregas (conductor que tuvo un carro y desde/hasta cuándo).
 const handoverSchema = new Schema(
   {
@@ -159,6 +172,11 @@ const agentSessionSchema = new Schema(
     status: { type: String, default: "active" },
     // Conciliación de un pago Nequi (status "nequi"): pago pendiente elegido.
     pendingId: { type: String, default: "" },
+    // Fase de la conciliación Nequi: "" (eligiendo carro) o "days" (eligiendo
+    // los días pendientes del carro ya elegido).
+    phase: { type: String, default: "" },
+    carId: { type: String, default: "" },
+    dayDates: { type: [String], default: [] }, // días pendientes mostrados
   },
   { timestamps: true }
 );
@@ -174,5 +192,6 @@ export const RefinanceModel = mongoose.model("Refinance", refinanceSchema);
 export const PendingPaymentModel = mongoose.model("PendingPayment", pendingPaymentSchema);
 export const PushSubscriptionModel = mongoose.model("PushSubscription", pushSubscriptionSchema);
 export const ReminderLogModel = mongoose.model("ReminderLog", reminderLogSchema);
+export const TelegramUpdateModel = mongoose.model("TelegramUpdate", telegramUpdateSchema);
 export const HandoverModel = mongoose.model("Handover", handoverSchema);
 export const AgentSessionModel = mongoose.model("AgentSession", agentSessionSchema);

@@ -73,7 +73,7 @@ export function createApp() {
   app.use("/api/whatsapp/webhook", buildWhatsAppWebhook({ useCases }));
   // Webhook público de Telegram. Igual que el de WhatsApp: antes de mongoSanitize
   // y sin JWT (Telegram no envía Bearer).
-  app.use("/api/telegram/webhook", buildTelegramWebhook({ useCases }));
+  app.use("/api/telegram/webhook", buildTelegramWebhook({ useCases, updateRepository: repositories.telegramUpdateRepository }));
 
   app.use(mongoSanitize({ allowDots: false, replaceWith: "_" }));
 

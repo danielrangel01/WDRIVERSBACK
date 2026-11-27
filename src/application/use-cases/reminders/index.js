@@ -104,7 +104,7 @@ export class GetRemindersUseCase {
     if (s.nequiPendingCount > 0) {
       add({
         id: "nequi", kind: "nequi", level: "warn", icon: "🏦",
-        title: `${s.nequiPendingCount} pago(s) Nequi por conciliar`,
+        title: `${s.nequiPendingCount} pago(s) Nequi por asignar`,
         body: `Monto detectado: ${cop(s.nequiPendingAmount)}.`,
       });
     }
@@ -211,7 +211,7 @@ export class GetRemindersUseCase {
     }
     if (s.overdueCount > 0) t += `🚨 Atrasados: ${s.overdueCount} — ${cop(s.overdueAmount)}\n`;
     if (s.docsAlertCount > 0) t += `📄 Docs por vencer: ${s.docsAlertCount} (${s.docsExpiredCount} vencidos)\n`;
-    if (s.nequiPendingCount > 0) t += `🏦 Nequi por conciliar: ${s.nequiPendingCount} — ${cop(s.nequiPendingAmount)}\n`;
+    if (s.nequiPendingCount > 0) t += `🏦 Nequi por asignar: ${s.nequiPendingCount} — ${cop(s.nequiPendingAmount)}\n`;
     if (s.refinanceCount > 0) t += `🔁 Refinanciaciones: ${s.refinanceCount} — ${cop(s.refinanceRemaining)}\n`;
     t += `\nDeuda total flota: ${cop(s.fleetDebt)}\n_W Drivers_`;
     // Resumen del día anterior (cierre + novedades), solo en el saludo de la mañana.
