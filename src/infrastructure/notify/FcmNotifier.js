@@ -2,12 +2,35 @@
 // Se activa solo si hay credenciales de servicio de Firebase configuradas.
 // La dependencia `firebase-admin` se carga de forma diferida (import dinámico)
 // para que el resto del sistema —y las pruebas— funcione sin ella instalada.
+// Algunas consolas (Railway, paneles web) convierten los `\n` del JSON en saltos
+// de línea reales al pegar las credenciales, dejando el JSON inválido. Reparamos
+// los caracteres de control que hayan quedado dentro de las cadenas.
+function repairJsonControlChars(raw) {
+  let out = "";
+  let inString = false;
+  let escaped = false;
+  for (const ch of raw) {
+    if (escaped) { out += ch; escaped = false; continue; }
+    if (ch === "\\") { out += ch; escaped = true; continue; }
+    if (ch === '"') { inString = !inString; out += ch; continue; }
+    if (inString && (ch === "\n" || ch === "\r" || ch === "\t")) {
+      out += ch === "\t" ? "\\t" : ch === "\r" ? "" : "\\n";
+      continue;
+    }
+    out += ch;
+  }
+  return out;
+}
+
 function parseServiceAccount(raw) {
   if (!raw) return null;
-  try {
-    const obj = typeof raw === "string" ? JSON.parse(raw) : raw;
-    if (obj && obj.project_id && obj.private_key && obj.client_email) return obj;
-  } catch (_) {}
+  let obj = typeof raw === "string" ? null : raw;
+  if (!obj && typeof raw === "string") {
+    for (const candidate of [raw, repairJsonControlChars(raw)]) {
+      try { obj = JSON.parse(candidate); break; } catch (_) { obj = null; }
+    }
+  }
+  if (obj && obj.project_id && obj.private_key && obj.client_email) return obj;
   return null;
 }
 

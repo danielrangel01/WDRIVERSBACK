@@ -73,6 +73,10 @@ export class ReminderDispatcher {
 
     const results = {};
 
+    // Preferencias de push: el interruptor global y la categoría "Recordatorios"
+    // deben estar activos para despachar por push (Web Push y FCM nativo).
+    const pushAllowed = settings.pushEnabled !== false && settings.pushReminders !== false;
+
     if (this.email && this.email.enabled) {
       let text = whatsappText;
       if (waLink) text += `\n\n📲 Enviar por WhatsApp: ${waLink}`;
@@ -95,7 +99,7 @@ export class ReminderDispatcher {
       }
     }
 
-    if (this.push && this.push.enabled && this.pushSubs) {
+    if (pushAllowed && this.push && this.push.enabled && this.pushSubs) {
       const subs = await this.pushSubs.findAll();
       const payload = {
         title: subject,
@@ -121,7 +125,7 @@ export class ReminderDispatcher {
     }
 
     // Push nativo a las apps iOS/Android registradas (FCM).
-    if (this.fcm && this.fcm.enabled && this.devices) {
+    if (pushAllowed && this.fcm && this.fcm.enabled && this.devices) {
       const devices = await this.devices.findAll();
       const body = reminders.slice(0, 3).map((r) => `${r.icon} ${r.title}`).join("\n") || "Sin pendientes";
       const data = { type: "reminder", moment: String(moment || ""), date: String(date || ""), url: "/" };

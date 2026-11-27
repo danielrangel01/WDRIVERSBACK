@@ -209,6 +209,7 @@ export class MongoSettingsRepository extends ISettingsRepository {
       lateMorningHour: d.lateMorningHour, middayHour: d.middayHour,
       afternoonHour: d.afternoonHour, eveningHour: d.eveningHour,
       notifyChannel: d.notifyChannel, telegramChatId: d.telegramChatId,
+      pushEnabled: d.pushEnabled, pushPayments: d.pushPayments, pushReminders: d.pushReminders,
     });
   }
   async update(settings) {
@@ -220,6 +221,7 @@ export class MongoSettingsRepository extends ISettingsRepository {
         lateMorningHour: settings.lateMorningHour, middayHour: settings.middayHour,
         afternoonHour: settings.afternoonHour, eveningHour: settings.eveningHour,
         notifyChannel: settings.notifyChannel, telegramChatId: settings.telegramChatId,
+        pushEnabled: settings.pushEnabled, pushPayments: settings.pushPayments, pushReminders: settings.pushReminders,
       },
       { upsert: true, new: true }
     );
@@ -229,6 +231,7 @@ export class MongoSettingsRepository extends ISettingsRepository {
       lateMorningHour: d.lateMorningHour, middayHour: d.middayHour,
       afternoonHour: d.afternoonHour, eveningHour: d.eveningHour,
       notifyChannel: d.notifyChannel, telegramChatId: d.telegramChatId,
+      pushEnabled: d.pushEnabled, pushPayments: d.pushPayments, pushReminders: d.pushReminders,
     });
   }
 }

@@ -78,6 +78,10 @@ const settingsSchema = new Schema(
     eveningHour: { type: Number, default: 20 },
     notifyChannel: { type: String, enum: ["whatsapp", "telegram"], default: "whatsapp" },
     telegramChatId: { type: String, default: "" },
+    // Preferencias de push nativo (apps iOS/Android).
+    pushEnabled: { type: Boolean, default: true },
+    pushPayments: { type: Boolean, default: true },
+    pushReminders: { type: Boolean, default: true },
   },
   { timestamps: true }
 );

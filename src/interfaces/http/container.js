@@ -101,7 +101,9 @@ export function buildContainer() {
     telegramChatId: config.notifications.telegramAdminChatId,
   });
 
-  const addPayment = new AddPaymentUseCase({ paymentRepository, carRepository });
+  const addPayment = new AddPaymentUseCase({
+    paymentRepository, carRepository, settingsRepository, fcmNotifier, deviceTokenRepository,
+  });
   const toggleOffDay = new ToggleOffDayUseCase({ offDayRepository, carRepository });
   const getSettings = new GetSettingsUseCase({ settingsRepository });
 

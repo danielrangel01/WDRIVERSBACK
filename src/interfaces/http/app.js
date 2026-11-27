@@ -141,6 +141,8 @@ function buildApiRoutes(controllers, authMiddleware) {
   api.get("/push/public-key", controllers.getPushPublicKey);
   api.post("/push/subscribe", controllers.subscribePush);
   api.post("/push/unsubscribe", controllers.unsubscribePush);
+  api.post("/push/device", controllers.registerDevice);
+  api.delete("/push/device", controllers.unregisterDevice);
   api.get("/whatsapp/status", controllers.whatsappStatus);
   api.post("/whatsapp/send", controllers.sendWhatsApp);
   // Envío por el canal activo (WhatsApp o Telegram).

@@ -179,7 +179,7 @@ export class PendingPayment {
 }
 
 export class Settings {
-  constructor({ adminPhone = "", adminEmail = "", remindersEnabled = true, morningHour = 8, lateMorningHour = 11, middayHour = 14, afternoonHour = 16, eveningHour = 20, notifyChannel = "whatsapp", telegramChatId = "" } = {}) {
+  constructor({ adminPhone = "", adminEmail = "", remindersEnabled = true, morningHour = 8, lateMorningHour = 11, middayHour = 14, afternoonHour = 16, eveningHour = 20, notifyChannel = "whatsapp", telegramChatId = "", pushEnabled = true, pushPayments = true, pushReminders = true } = {}) {
     this.adminPhone = req(adminPhone, MAX_PHONE);
     this.adminEmail = req(adminEmail, MAX_EMAIL);
     this.remindersEnabled = remindersEnabled === undefined ? true : !!remindersEnabled;
@@ -191,6 +191,11 @@ export class Settings {
     // Canal activo (solo uno a la vez) y chat id del admin en Telegram.
     this.notifyChannel = NOTIFY_CHANNELS.includes(notifyChannel) ? notifyChannel : "whatsapp";
     this.telegramChatId = req(telegramChatId, MAX_CHATID);
+    // Preferencias de push nativo (apps iOS/Android): interruptor global y
+    // categorías informativas que el admin quiere recibir.
+    this.pushEnabled = pushEnabled === undefined ? true : !!pushEnabled;
+    this.pushPayments = pushPayments === undefined ? true : !!pushPayments;
+    this.pushReminders = pushReminders === undefined ? true : !!pushReminders;
   }
   validate() {
     if (this.adminEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(this.adminEmail)) {
@@ -210,6 +215,9 @@ export class Settings {
       eveningHour: this.eveningHour,
       notifyChannel: this.notifyChannel,
       telegramChatId: this.telegramChatId,
+      pushEnabled: this.pushEnabled,
+      pushPayments: this.pushPayments,
+      pushReminders: this.pushReminders,
     };
   }
 }

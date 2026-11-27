@@ -207,18 +207,22 @@ export function buildControllers(useCases, { notify = {} } = {}) {
       });
       // Saludo de bienvenida al push nativo: se envía al alta de un dispositivo
       // nuevo (primer login tras instalar) o cuando el cliente lo pide tras
-      // iniciar sesión (`greet`). Sirve como prueba de extremo a extremo.
+      // iniciar sesión (`greet`). Respeta el interruptor global de push.
       const greet = !!body.greet;
       if (result.isNew || greet) {
-        if (notify.fcmNotifier && notify.fcmNotifier.enabled) {
+        const s = await useCases.getSettings.execute();
+        const pushAllowed = !s || s.pushEnabled !== false;
+        if (pushAllowed && notify.fcmNotifier && notify.fcmNotifier.enabled) {
           const sent = await notify.fcmNotifier.send(body.token, {
-            title: `¡Hola, ${req.user.username}!`,
-            body: "Sesión iniciada en W Drivers. Las notificaciones push están activas.",
+            title: "¡Bienvenido a W Drivers!",
+            body: `Hola ${req.user.username}, tu sesión se inició correctamente.`,
             data: { type: "welcome" },
           });
           if (!sent.ok) {
             console.warn("[push] saludo de bienvenida no enviado:", sent.code || sent.error || sent.reason);
           }
+        } else if (!pushAllowed) {
+          console.warn("[push] saludo omitido: notificaciones push desactivadas en Ajustes");
         } else {
           console.warn("[push] saludo no enviado: el canal FCM no está activo (¿FIREBASE_SERVICE_ACCOUNT?)");
         }

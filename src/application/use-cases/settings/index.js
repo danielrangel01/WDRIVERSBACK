@@ -13,7 +13,7 @@ export class UpdateSettingsUseCase {
   constructor({ settingsRepository }) {
     this.settings = settingsRepository;
   }
-  async execute({ adminPhone, adminEmail, remindersEnabled, morningHour, lateMorningHour, middayHour, afternoonHour, eveningHour, notifyChannel, telegramChatId }) {
+  async execute({ adminPhone, adminEmail, remindersEnabled, morningHour, lateMorningHour, middayHour, afternoonHour, eveningHour, notifyChannel, telegramChatId, pushEnabled, pushPayments, pushReminders }) {
     const current = await this.settings.get();
     const merged = new Settings({
       adminPhone: adminPhone !== undefined ? adminPhone : current.adminPhone,
@@ -26,6 +26,9 @@ export class UpdateSettingsUseCase {
       eveningHour: eveningHour !== undefined ? eveningHour : current.eveningHour,
       notifyChannel: notifyChannel !== undefined ? notifyChannel : current.notifyChannel,
       telegramChatId: telegramChatId !== undefined ? telegramChatId : current.telegramChatId,
+      pushEnabled: pushEnabled !== undefined ? pushEnabled : current.pushEnabled,
+      pushPayments: pushPayments !== undefined ? pushPayments : current.pushPayments,
+      pushReminders: pushReminders !== undefined ? pushReminders : current.pushReminders,
     });
     merged.validate();
     return this.settings.update(merged);
