@@ -199,20 +199,29 @@ export function buildControllers(useCases, { notify = {} } = {}) {
       res.json(await useCases.unsubscribePush.execute({ endpoint: req.body && req.body.endpoint }));
     }),
     registerDevice: asyncHandler(async (req, res) => {
+      const body = req.body || {};
       const result = await useCases.registerDevice.execute({
-        token: req.body && req.body.token,
-        platform: req.body && req.body.platform,
-        deviceName: req.body && req.body.deviceName,
+        token: body.token,
+        platform: body.platform,
+        deviceName: body.deviceName,
       });
-      // Saludo de bienvenida al registrar el dispositivo por primera vez: sirve
-      // como prueba de extremo a extremo del push nativo. Al ser `isNew`, no se
-      // repite en cada apertura de la app.
-      if (result.isNew && notify.fcmNotifier && notify.fcmNotifier.enabled) {
-        await notify.fcmNotifier.send(req.body && req.body.token, {
-          title: `¡Hola, ${req.user.username}!`,
-          body: "Sesión iniciada en W Drivers. Las notificaciones push están activas.",
-          data: { type: "welcome" },
-        });
+      // Saludo de bienvenida al push nativo: se envía al alta de un dispositivo
+      // nuevo (primer login tras instalar) o cuando el cliente lo pide tras
+      // iniciar sesión (`greet`). Sirve como prueba de extremo a extremo.
+      const greet = !!body.greet;
+      if (result.isNew || greet) {
+        if (notify.fcmNotifier && notify.fcmNotifier.enabled) {
+          const sent = await notify.fcmNotifier.send(body.token, {
+            title: `¡Hola, ${req.user.username}!`,
+            body: "Sesión iniciada en W Drivers. Las notificaciones push están activas.",
+            data: { type: "welcome" },
+          });
+          if (!sent.ok) {
+            console.warn("[push] saludo de bienvenida no enviado:", sent.code || sent.error || sent.reason);
+          }
+        } else {
+          console.warn("[push] saludo no enviado: el canal FCM no está activo (¿FIREBASE_SERVICE_ACCOUNT?)");
+        }
       }
       res.status(201).json(result);
     }),
