@@ -39,7 +39,7 @@ export class AddPaymentUseCase {
       const body = `${car.plate}${label ? ` · ${label}` : ""} — ${cop(payment.amount)}`;
       const data = { type: "payment", carId: String(car.id || "") };
       for (const d of devices) {
-        const r = await this.fcm.send(d.token, { title, body, data });
+        const r = await this.fcm.send(d.token, { title, body, data, platform: d.platform });
         if (r && r.code === "messaging/registration-token-not-registered") {
           await this.devices.removeByToken(d.token);
         }

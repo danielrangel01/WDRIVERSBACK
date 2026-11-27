@@ -132,7 +132,7 @@ export class ReminderDispatcher {
       let sent = 0;
       let pruned = 0;
       for (const d of devices) {
-        const r = await this.fcm.send(d.token, { title: subject, body, data });
+        const r = await this.fcm.send(d.token, { title: subject, body, data, platform: d.platform });
         if (r && r.ok) sent += 1;
         else if (r && r.code === "messaging/registration-token-not-registered") {
           await this.devices.removeByToken(d.token);

@@ -62,13 +62,29 @@ export class FcmNotifier {
     if (!this.enabled || !token) return { ok: false, skipped: true, reason: "fcm_disabled" };
     try {
       const app = await this._loadApp();
-      const message = {
-        token,
-        notification: { title: payload.title || "W Drivers", body: payload.body || "" },
-        data: payload.data || {},
-        android: { priority: "high", notification: { channelId: "wdrivers_default", sound: "default" } },
-        apns: { payload: { aps: { sound: "default" } } },
-      };
+      const title = payload.title || "W Drivers";
+      const body = payload.body || "";
+      // Los valores de `data` deben ser cadenas (lo exige FCM).
+      const data = {};
+      for (const [k, v] of Object.entries(payload.data || {})) data[k] = String(v);
+      const isIOS = payload.platform === "ios";
+      // iOS: mensaje con `notification` + `aps.alert` (el sistema muestra el aviso
+      //   y el ícono de la app automáticamente).
+      // Android: mensaje de DATOS (sin `notification`) para que la app siempre
+      //   reciba onMessageReceived —primer plano o segundo— y arme la notificación
+      //   mostrando el logo de la app como ícono grande.
+      const message = isIOS
+        ? {
+            token,
+            notification: { title, body },
+            data,
+            apns: { payload: { aps: { sound: "default" } } },
+          }
+        : {
+            token,
+            data: { ...data, title, body },
+            android: { priority: "high" },
+          };
       const messageId = await app.messaging().send(message);
       return { ok: true, messageId };
     } catch (err) {

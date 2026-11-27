@@ -217,6 +217,7 @@ export function buildControllers(useCases, { notify = {} } = {}) {
             title: "¡Bienvenido a W Drivers!",
             body: `Hola ${req.user.username}, tu sesión se inició correctamente.`,
             data: { type: "welcome" },
+            platform: result.platform,
           });
           if (!sent.ok) {
             console.warn("[push] saludo de bienvenida no enviado:", sent.code || sent.error || sent.reason);
