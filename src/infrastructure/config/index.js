@@ -249,6 +249,13 @@ export const config = {
     vapidPublicKey: process.env.VAPID_PUBLIC_KEY || "",
     vapidPrivateKey: process.env.VAPID_PRIVATE_KEY || "",
     vapidSubject: process.env.VAPID_SUBJECT || "mailto:admin@wdrivers.app",
+    // Push nativo iOS/Android (FCM). Se activa solo si hay credenciales de
+    // servicio de Firebase (el JSON completo en la variable de entorno).
+    get fcmEnabled() {
+      return !!process.env.FIREBASE_SERVICE_ACCOUNT;
+    },
+    firebaseServiceAccount: process.env.FIREBASE_SERVICE_ACCOUNT || "",
+    firebaseProjectId: process.env.FIREBASE_PROJECT_ID || "",
     // WhatsApp Cloud API (Meta). Se activa solo si hay token y número emisor.
     get whatsappEnabled() {
       return !!(process.env.WHATSAPP_TOKEN && process.env.WHATSAPP_PHONE_NUMBER_ID);
@@ -281,6 +288,6 @@ export const config = {
     // Zona horaria para el cálculo de mañana/tarde (Colombia por defecto).
     timezone: process.env.REMINDER_TZ || "America/Bogota",
     checkEveryMs: Number(process.env.REMINDER_CHECK_EVERY_MS || 5 * 60 * 1000),
-    get enabled() { return this.emailEnabled || this.pushEnabled || this.whatsappEnabled || this.telegramEnabled; },
+    get enabled() { return this.emailEnabled || this.pushEnabled || this.fcmEnabled || this.whatsappEnabled || this.telegramEnabled; },
   },
 };

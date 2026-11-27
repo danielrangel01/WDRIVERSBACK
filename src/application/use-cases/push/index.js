@@ -34,3 +34,39 @@ export class UnsubscribePushUseCase {
     return { ok: true, removed };
   }
 }
+
+/**
+ * Registra (o actualiza) el token de dispositivo de una app nativa (iOS/Android)
+ * para enviarle notificaciones push vía FCM. El token lo genera el SDK de
+ * Firebase en el dispositivo y se envía aquí tras el login.
+ */
+export class RegisterDeviceUseCase {
+  constructor({ deviceTokenRepository }) {
+    this.devices = deviceTokenRepository;
+  }
+
+  async execute({ token, platform, deviceName } = {}) {
+    const t = String(token || "").trim();
+    if (!t) throw new ValidationError("Token de dispositivo inválido");
+    const p = platform === "ios" ? "ios" : "android";
+    // `isNew` permite al llamador distinguir el primer alta (p. ej. para enviar
+    // un saludo de bienvenida) de un simple refresco del mismo token.
+    const isNew = !(await this.devices.exists(t));
+    await this.devices.upsert({ token: t, platform: p, deviceName });
+    return { ok: true, platform: p, token: t.slice(-12), isNew };
+  }
+}
+
+/** Elimina el token de dispositivo (p. ej. al cerrar sesión). */
+export class UnregisterDeviceUseCase {
+  constructor({ deviceTokenRepository }) {
+    this.devices = deviceTokenRepository;
+  }
+
+  async execute({ token } = {}) {
+    const t = String(token || "").trim();
+    if (!t) throw new ValidationError("Falta el token de dispositivo");
+    const removed = await this.devices.removeByToken(t);
+    return { ok: true, removed };
+  }
+}

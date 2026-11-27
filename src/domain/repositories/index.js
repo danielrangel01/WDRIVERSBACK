@@ -84,6 +84,15 @@ export class IPushSubscriptionRepository {
   async deleteAll() { throw new Error("No implementado"); }
 }
 
+// Tokens de dispositivo (FCM) para push nativo en las apps iOS/Android.
+export class IDeviceTokenRepository {
+  async findAll() { throw new Error("No implementado"); }
+  async exists(_token) { throw new Error("No implementado"); }
+  async upsert(_device = {}) { throw new Error("No implementado"); }
+  async removeByToken(_token) { throw new Error("No implementado"); }
+  async deleteAll() { throw new Error("No implementado"); }
+}
+
 export class IReminderLogRepository {
   async exists(_key) { throw new Error("No implementado"); }
   async record(_key, _payload = {}) { throw new Error("No implementado"); }

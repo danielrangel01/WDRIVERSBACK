@@ -2,7 +2,7 @@ import {
   IUserRepository, ICarRepository, IPaymentRepository,
   IExpenseRepository, IDocumentRepository, IOffDayRepository, ISettingsRepository, IRefinanceRepository,
   IPendingPaymentRepository, IPushSubscriptionRepository, IReminderLogRepository, IHandoverRepository,
-  IAgentSessionRepository,
+  IAgentSessionRepository, IDeviceTokenRepository,
 } from "../../../domain/repositories/index.js";
 import { User, Payment, Expense, VehicleDocument, OffDay, Settings, PendingPayment } from "../../../domain/entities/index.js";
 import { Refinance } from "../../../domain/entities/Refinance.js";
@@ -11,7 +11,7 @@ import { Handover } from "../../../domain/entities/Handover.js";
 import {
   UserModel, CarModel, PaymentModel, ExpenseModel, DocumentModel, OffDayModel, SettingsModel, RefinanceModel,
   PendingPaymentModel, PushSubscriptionModel, ReminderLogModel, HandoverModel, AgentSessionModel,
-  TelegramUpdateModel,
+  TelegramUpdateModel, DeviceTokenModel,
 } from "../models/index.js";
 
 const id = (doc) => doc._id.toString();
@@ -353,6 +353,52 @@ export class MongoPushSubscriptionRepository extends IPushSubscriptionRepository
   }
   async deleteAll() {
     await PushSubscriptionModel.deleteMany({});
+  }
+}
+
+// ── DeviceTokens (push nativo iOS/Android vía FCM) ────────────────────────────
+const toDevice = (d) => ({
+  id: String(d._id),
+  token: d.token,
+  platform: d.platform === "ios" ? "ios" : "android",
+  deviceName: d.deviceName || "",
+  enabled: d.enabled !== false,
+  lastSeenAt: d.lastSeenAt,
+});
+
+export class MongoDeviceTokenRepository extends IDeviceTokenRepository {
+  async findAll() {
+    const docs = await DeviceTokenModel.find({ enabled: true }).sort({ updatedAt: -1 });
+    return docs.map(toDevice);
+  }
+  async exists(token) {
+    const t = String(token || "").trim();
+    if (!t) return false;
+    return !!(await DeviceTokenModel.exists({ token: t }));
+  }
+  async upsert(device = {}) {
+    const token = String(device.token || "").trim();
+    if (!token) return null;
+    const doc = await DeviceTokenModel.findOneAndUpdate(
+      { token },
+      {
+        token,
+        platform: device.platform === "ios" ? "ios" : "android",
+        deviceName: String(device.deviceName || "").slice(0, 120),
+        enabled: true,
+        lastSeenAt: new Date(),
+      },
+      { upsert: true, new: true, setDefaultsOnInsert: true }
+    );
+    return toDevice(doc);
+  }
+  async removeByToken(token) {
+    if (!token) return 0;
+    const r = await DeviceTokenModel.deleteOne({ token: String(token).trim() });
+    return r.deletedCount || 0;
+  }
+  async deleteAll() {
+    await DeviceTokenModel.deleteMany({});
   }
 }
 

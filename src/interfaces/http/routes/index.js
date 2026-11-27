@@ -24,10 +24,12 @@ export function buildRoutes(controllers, authMiddleware) {
   api.get("/collections", controllers.getCollections);
   api.get("/reminders", controllers.getReminders);
 
-  // push (Web Push / PWA)
+  // push (Web Push / PWA + FCM nativo iOS/Android)
   api.get("/push/public-key", controllers.getPushPublicKey);
   api.post("/push/subscribe", controllers.subscribePush);
   api.post("/push/unsubscribe", controllers.unsubscribePush);
+  api.post("/push/device", controllers.registerDevice);
+  api.delete("/push/device", controllers.unregisterDevice);
 
   // cars
   api.get("/cars", controllers.listCars);

@@ -4,7 +4,7 @@ import {
   MongoUserRepository, MongoCarRepository, MongoPaymentRepository,
   MongoExpenseRepository, MongoDocumentRepository, MongoOffDayRepository, MongoSettingsRepository, MongoRefinanceRepository,
   MongoPendingPaymentRepository, MongoPushSubscriptionRepository, MongoReminderLogRepository,
-  MongoHandoverRepository, MongoAgentSessionRepository, MongoTelegramUpdateRepository,
+  MongoHandoverRepository, MongoAgentSessionRepository, MongoTelegramUpdateRepository, MongoDeviceTokenRepository,
 } from "../../infrastructure/database/repositories/index.js";
 
 import { BcryptHasher } from "../../infrastructure/security/BcryptHasher.js";
@@ -12,6 +12,7 @@ import { JwtTokenService } from "../../infrastructure/security/JwtTokenService.j
 import { NequiMailReader } from "../../infrastructure/mail/NequiMailReader.js";
 import { EmailNotifier } from "../../infrastructure/notify/EmailNotifier.js";
 import { PushNotifier } from "../../infrastructure/notify/PushNotifier.js";
+import { FcmNotifier } from "../../infrastructure/notify/FcmNotifier.js";
 import { WhatsAppNotifier } from "../../infrastructure/notify/WhatsAppNotifier.js";
 import { TelegramNotifier } from "../../infrastructure/notify/TelegramNotifier.js";
 import { ReminderDispatcher } from "../../infrastructure/notify/ReminderDispatcher.js";
@@ -39,7 +40,7 @@ import {
   RegisterHandoverUseCase, CloseHandoverUseCase, UpdateHandoverUseCase,
   ListHandoversUseCase, DeleteHandoverUseCase,
 } from "../../application/use-cases/handovers/index.js";
-import { SubscribePushUseCase, UnsubscribePushUseCase } from "../../application/use-cases/push/index.js";
+import { SubscribePushUseCase, UnsubscribePushUseCase, RegisterDeviceUseCase, UnregisterDeviceUseCase } from "../../application/use-cases/push/index.js";
 import { CreateRefinanceUseCase, PayRefinanceUseCase, CancelRefinanceUseCase } from "../../application/use-cases/refinances/index.js";
 import {
   SyncNequiUseCase, ListPendingPaymentsUseCase, ApprovePendingPaymentUseCase, DismissPendingPaymentUseCase,
@@ -56,6 +57,7 @@ export function buildContainer() {
   const refinanceRepository = new MongoRefinanceRepository();
   const pendingPaymentRepository = new MongoPendingPaymentRepository();
   const pushSubscriptionRepository = new MongoPushSubscriptionRepository();
+  const deviceTokenRepository = new MongoDeviceTokenRepository();
   const reminderLogRepository = new MongoReminderLogRepository();
   const handoverRepository = new MongoHandoverRepository();
   const agentSessionRepository = new MongoAgentSessionRepository();
@@ -79,6 +81,10 @@ export function buildContainer() {
     privateKey: config.notifications.vapidPrivateKey,
     subject: config.notifications.vapidSubject,
   });
+  const fcmNotifier = new FcmNotifier({
+    serviceAccount: config.notifications.firebaseServiceAccount,
+    projectId: config.notifications.firebaseProjectId,
+  });
   const whatsappNotifier = new WhatsAppNotifier({
     token: config.notifications.whatsappToken,
     phoneNumberId: config.notifications.whatsappPhoneNumberId,
@@ -90,7 +96,8 @@ export function buildContainer() {
     token: config.notifications.telegramBotToken,
   });
   const reminderDispatcher = new ReminderDispatcher({
-    emailNotifier, pushNotifier, whatsappNotifier, telegramNotifier, pushSubscriptionRepository,
+    emailNotifier, pushNotifier, fcmNotifier, whatsappNotifier, telegramNotifier, pushSubscriptionRepository,
+    deviceTokenRepository,
     telegramChatId: config.notifications.telegramAdminChatId,
   });
 
@@ -175,6 +182,8 @@ export function buildContainer() {
     whatsAppAgent,
     subscribePush: new SubscribePushUseCase({ pushSubscriptionRepository }),
     unsubscribePush: new UnsubscribePushUseCase({ pushSubscriptionRepository }),
+    registerDevice: new RegisterDeviceUseCase({ deviceTokenRepository }),
+    unregisterDevice: new UnregisterDeviceUseCase({ deviceTokenRepository }),
     syncNequi: new SyncNequiUseCase({
       pendingPaymentRepository, mailReader, sendTelegram, getSettings,
       telegramChatId: config.notifications.telegramAdminChatId,
@@ -191,11 +200,11 @@ export function buildContainer() {
     passwordHasher,
     repositories: {
       userRepository, carRepository, pendingPaymentRepository,
-      settingsRepository, reminderLogRepository, pushSubscriptionRepository,
+      settingsRepository, reminderLogRepository, pushSubscriptionRepository, deviceTokenRepository,
       handoverRepository, agentSessionRepository, telegramUpdateRepository,
     },
     notify: {
-      emailNotifier, pushNotifier, whatsappNotifier, telegramNotifier, reminderDispatcher,
+      emailNotifier, pushNotifier, fcmNotifier, whatsappNotifier, telegramNotifier, reminderDispatcher,
       publicKey: config.notifications.vapidPublicKey,
       channels: reminderDispatcher.channels,
     },

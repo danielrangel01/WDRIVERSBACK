@@ -124,6 +124,18 @@ const pushSubscriptionSchema = new Schema(
   { timestamps: true }
 );
 
+// Tokens de dispositivo (FCM) para enviar push nativo a las apps iOS/Android.
+const deviceTokenSchema = new Schema(
+  {
+    token: { type: String, required: true, unique: true },
+    platform: { type: String, enum: ["ios", "android"], default: "android" },
+    deviceName: { type: String, default: "" },
+    enabled: { type: Boolean, default: true },
+    lastSeenAt: { type: Date, default: Date.now },
+  },
+  { timestamps: true }
+);
+
 // Registro idempotente de recordatorios enviados (clave `fecha:momento`).
 const reminderLogSchema = new Schema(
   {
@@ -191,6 +203,7 @@ export const SettingsModel = mongoose.model("Settings", settingsSchema);
 export const RefinanceModel = mongoose.model("Refinance", refinanceSchema);
 export const PendingPaymentModel = mongoose.model("PendingPayment", pendingPaymentSchema);
 export const PushSubscriptionModel = mongoose.model("PushSubscription", pushSubscriptionSchema);
+export const DeviceTokenModel = mongoose.model("DeviceToken", deviceTokenSchema);
 export const ReminderLogModel = mongoose.model("ReminderLog", reminderLogSchema);
 export const TelegramUpdateModel = mongoose.model("TelegramUpdate", telegramUpdateSchema);
 export const HandoverModel = mongoose.model("Handover", handoverSchema);

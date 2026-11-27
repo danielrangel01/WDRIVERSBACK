@@ -184,7 +184,7 @@ export function buildControllers(useCases, { notify = {} } = {}) {
       res.json(await useCases.getReminders.execute({ date: req.query.date, moment: req.query.moment }));
     }),
 
-    // ── Push (Web Push / PWA) ─────────────────────────────────────────────
+    // ── Push (Web Push / PWA + FCM nativo iOS/Android) ────────────────────
     getPushPublicKey: asyncHandler(async (req, res) => {
       res.json({ publicKey: notify.publicKey || "", enabled: !!(notify.channels && notify.channels.push) });
     }),
@@ -197,6 +197,27 @@ export function buildControllers(useCases, { notify = {} } = {}) {
     }),
     unsubscribePush: asyncHandler(async (req, res) => {
       res.json(await useCases.unsubscribePush.execute({ endpoint: req.body && req.body.endpoint }));
+    }),
+    registerDevice: asyncHandler(async (req, res) => {
+      const result = await useCases.registerDevice.execute({
+        token: req.body && req.body.token,
+        platform: req.body && req.body.platform,
+        deviceName: req.body && req.body.deviceName,
+      });
+      // Saludo de bienvenida al registrar el dispositivo por primera vez: sirve
+      // como prueba de extremo a extremo del push nativo. Al ser `isNew`, no se
+      // repite en cada apertura de la app.
+      if (result.isNew && notify.fcmNotifier && notify.fcmNotifier.enabled) {
+        await notify.fcmNotifier.send(req.body && req.body.token, {
+          title: `¡Hola, ${req.user.username}!`,
+          body: "Sesión iniciada en W Drivers. Las notificaciones push están activas.",
+          data: { type: "welcome" },
+        });
+      }
+      res.status(201).json(result);
+    }),
+    unregisterDevice: asyncHandler(async (req, res) => {
+      res.json(await useCases.unregisterDevice.execute({ token: req.body && req.body.token }));
     }),
 
     // ── WhatsApp (Cloud API / Meta) ───────────────────────────────────────

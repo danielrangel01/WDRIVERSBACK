@@ -21,20 +21,22 @@ const buildTemplateComponents = (counts = {}) => [
 
 /**
  * Reparte un recordatorio ya calculado por los canales de envío automático:
- * correo (SMTP), Web Push (PWA) y un canal de chat (WhatsApp Cloud API o
- * Telegram Bot API). El canal in-app no se envía aquí: se sirve como
- * texto/enlace desde el endpoint de recordatorios.
+ * correo (SMTP), Web Push (PWA), push nativo (FCM, apps iOS/Android) y un canal
+ * de chat (WhatsApp Cloud API o Telegram Bot API). El canal in-app no se envía
+ * aquí: se sirve como texto/enlace desde el endpoint de recordatorios.
  *
  * WhatsApp y Telegram son mutuamente excluyentes ("un canal activo a la vez"):
  * se elige con `settings.notifyChannel` para no duplicar avisos.
  */
 export class ReminderDispatcher {
-  constructor({ emailNotifier, pushNotifier, whatsappNotifier, telegramNotifier, pushSubscriptionRepository, telegramChatId = "" } = {}) {
+  constructor({ emailNotifier, pushNotifier, fcmNotifier, whatsappNotifier, telegramNotifier, pushSubscriptionRepository, deviceTokenRepository, telegramChatId = "" } = {}) {
     this.email = emailNotifier;
     this.push = pushNotifier;
+    this.fcm = fcmNotifier;
     this.whatsapp = whatsappNotifier;
     this.telegram = telegramNotifier;
     this.pushSubs = pushSubscriptionRepository;
+    this.devices = deviceTokenRepository;
     // Respaldo del chat id del admin (env) si no está en Ajustes.
     this.telegramChatId = telegramChatId || "";
   }
@@ -43,6 +45,7 @@ export class ReminderDispatcher {
     return {
       email: !!(this.email && this.email.enabled),
       push: !!(this.push && this.push.enabled),
+      fcm: !!(this.fcm && this.fcm.enabled),
       whatsapp: !!(this.whatsapp && this.whatsapp.enabled),
       telegram: !!(this.telegram && this.telegram.enabled),
     };
@@ -115,6 +118,24 @@ export class ReminderDispatcher {
         }
       }
       results.push = { sent, pruned };
+    }
+
+    // Push nativo a las apps iOS/Android registradas (FCM).
+    if (this.fcm && this.fcm.enabled && this.devices) {
+      const devices = await this.devices.findAll();
+      const body = reminders.slice(0, 3).map((r) => `${r.icon} ${r.title}`).join("\n") || "Sin pendientes";
+      const data = { type: "reminder", moment: String(moment || ""), date: String(date || ""), url: "/" };
+      let sent = 0;
+      let pruned = 0;
+      for (const d of devices) {
+        const r = await this.fcm.send(d.token, { title: subject, body, data });
+        if (r && r.ok) sent += 1;
+        else if (r && r.code === "messaging/registration-token-not-registered") {
+          await this.devices.removeByToken(d.token);
+          pruned += 1;
+        }
+      }
+      results.fcm = { sent, pruned };
     }
 
     return results;
